@@ -9,10 +9,13 @@ dependencies = [
     "matplotlib>=3.9",
     "mplfinance>=0.12.9",
     "numpy>=1.26",
+    "flask>=3.0",
+    "gunicorn>=22.0",
 ]
 
 [project.scripts]
 stock-checker = "stock_checker.cli:main"
+stock-checker-web = "stock_checker.app:run"
 
 [build-system]
 requires = ["hatchling"]

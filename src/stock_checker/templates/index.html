@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stock Checker</title>
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f0f17;
+            color: #e0e0e0;
+            min-height: 100vh;
+        }
+
+        header {
+            background: #16161e;
+            border-bottom: 1px solid #2a2a3e;
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            gap: 24px;
+            flex-wrap: wrap;
+        }
+
+        .logo {
+            font-size: 20px;
+            font-weight: 700;
+            color: #26a69a;
+            white-space: nowrap;
+        }
+
+        .search-form {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex: 1;
+            min-width: 300px;
+        }
+
+        input[type="text"] {
+            background: #1e1e2f;
+            border: 1px solid #3a3a5e;
+            color: #e0e0e0;
+            padding: 10px 14px;
+            border-radius: 6px;
+            font-size: 15px;
+            width: 220px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        input[type="text"]:focus { border-color: #26a69a; }
+
+        input[type="text"]::placeholder { color: #666; }
+
+        select {
+            background: #1e1e2f;
+            border: 1px solid #3a3a5e;
+            color: #e0e0e0;
+            padding: 10px 12px;
+            border-radius: 6px;
+            font-size: 15px;
+            cursor: pointer;
+            outline: none;
+        }
+
+        button {
+            background: #26a69a;
+            color: #fff;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+            white-space: nowrap;
+        }
+
+        button:hover { background: #2bbd9e; }
+        button:disabled { background: #3a3a5e; cursor: not-allowed; }
+
+        .hint {
+            color: #777;
+            font-size: 12px;
+            white-space: nowrap;
+        }
+
+        main { padding: 20px 24px; max-width: 1400px; margin: 0 auto; }
+
+        .welcome {
+            text-align: center;
+            padding: 80px 20px;
+            color: #555;
+        }
+        .welcome h2 { color: #777; font-size: 22px; margin-bottom: 8px; }
+        .welcome p { font-size: 14px; }
+
+        .error-msg {
+            background: #2d1b1b;
+            border: 1px solid #ef5350;
+            color: #ef5350;
+            padding: 12px 16px;
+            border-radius: 6px;
+            margin-bottom: 16px;
+        }
+
+        .info-cards {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        @media (max-width: 768px) {
+            .info-cards { grid-template-columns: 1fr; }
+        }
+
+        .card {
+            background: #16161e;
+            border: 1px solid #2a2a3e;
+            border-radius: 8px;
+            padding: 18px 20px;
+        }
+
+        .card h3 {
+            font-size: 14px;
+            color: #26a69a;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 12px;
+        }
+
+        .card-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px 16px;
+        }
+
+        .card-item { display: flex; justify-content: space-between; padding: 3px 0; }
+        .card-label { color: #999; font-size: 13px; }
+        .card-value { font-size: 13px; font-weight: 600; }
+
+        #chart-container {
+            background: #16161e;
+            border: 1px solid #2a2a3e;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 18px;
+            height: 18px;
+            border: 2px solid #3a3a5e;
+            border-top-color: #26a69a;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            vertical-align: middle;
+            margin-right: 6px;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .quick-tickers {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+        }
+        .quick-tickers span { color: #666; font-size: 12px; }
+        .quick-btn {
+            background: #1e1e2f;
+            border: 1px solid #3a3a5e;
+            color: #aaa;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+        .quick-btn:hover { border-color: #26a69a; color: #26a69a; background: #1a2a28; }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="logo">Stock Checker</div>
+        <form class="search-form" id="analyze-form" onsubmit="return doAnalyze(event)">
+            <input type="text" id="ticker-input" placeholder="Ticker, e.g. BBCA.JK" autofocus>
+            <select id="period-select">
+                {% for p in periods %}
+                <option value="{{ p }}" {{ 'selected' if p == '1y' else '' }}>{{ p }}</option>
+                {% endfor %}
+            </select>
+            <button type="submit" id="analyze-btn">Analyze</button>
+            <span class="hint">Press Enter to search</span>
+        </form>
+        <div class="quick-tickers">
+            <span>Quick:</span>
+            <button class="quick-btn" onclick="quickSearch('BBCA.JK')">BBCA.JK</button>
+            <button class="quick-btn" onclick="quickSearch('TLKM.JK')">TLKM.JK</button>
+            <button class="quick-btn" onclick="quickSearch('ISAT.JK')">ISAT.JK</button>
+            <button class="quick-btn" onclick="quickSearch('UNVR.JK')">UNVR.JK</button>
+            <button class="quick-btn" onclick="quickSearch('AAPL')">AAPL</button>
+        </div>
+    </header>
+
+    <main>
+        <div id="welcome" class="welcome">
+            <h2>Enter a stock ticker to get started</h2>
+            <p>Candlestick chart with SMA, RSI, and volume analysis</p>
+        </div>
+        <div id="error" class="error-msg" style="display:none"></div>
+        <div id="results" style="display:none">
+            <div class="info-cards">
+                <div class="card">
+                    <h3>Stock Summary</h3>
+                    <div class="card-grid" id="summary-grid"></div>
+                </div>
+                <div class="card">
+                    <h3>Technical Indicators</h3>
+                    <div class="card-grid" id="technicals-grid"></div>
+                </div>
+            </div>
+            <div id="chart-container"></div>
+        </div>
+    </main>
+
+    <script>
+        function quickSearch(ticker) {
+            document.getElementById('ticker-input').value = ticker;
+            doAnalyze();
+        }
+
+        async function doAnalyze(e) {
+            if (e) e.preventDefault();
+
+            const ticker = document.getElementById('ticker-input').value.trim();
+            if (!ticker) return false;
+
+            const period = document.getElementById('period-select').value;
+            const btn = document.getElementById('analyze-btn');
+
+            // UI state
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span>Loading...';
+            document.getElementById('error').style.display = 'none';
+            document.getElementById('welcome').style.display = 'none';
+            document.getElementById('results').style.display = 'none';
+
+            try {
+                const resp = await fetch('/api/analyze', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ticker, period}),
+                });
+
+                const data = await resp.json();
+
+                if (!resp.ok) {
+                    document.getElementById('error').textContent = data.error || 'Something went wrong';
+                    document.getElementById('error').style.display = 'block';
+                    return false;
+                }
+
+                // Render summary
+                const sg = document.getElementById('summary-grid');
+                sg.innerHTML = '';
+                for (const [k, v] of Object.entries(data.summary)) {
+                    sg.innerHTML += `<div class="card-item"><span class="card-label">${k}</span><span class="card-value">${v}</span></div>`;
+                }
+
+                // Render technicals
+                const tg = document.getElementById('technicals-grid');
+                tg.innerHTML = '';
+                for (const [k, v] of Object.entries(data.technicals)) {
+                    tg.innerHTML += `<div class="card-item"><span class="card-label">${k}</span><span class="card-value">${v}</span></div>`;
+                }
+
+                // Render chart
+                const chartDiv = document.getElementById('chart-container');
+                const chartConfig = {responsive: true, displayModeBar: true, displaylogo: false};
+                Plotly.newPlot(chartDiv, data.chart.data, data.chart.layout, chartConfig);
+
+                document.getElementById('results').style.display = 'block';
+
+            } catch (err) {
+                document.getElementById('error').textContent = 'Network error: ' + err.message;
+                document.getElementById('error').style.display = 'block';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Analyze';
+            }
+
+            return false;
+        }
+    </script>
+</body>
+</html>

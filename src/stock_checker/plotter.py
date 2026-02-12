@@ -8,7 +8,7 @@ def plot_stock(df, ticker, output=None):
     add_plots = []
     colors = {"SMA_20": "blue", "SMA_50": "orange", "SMA_200": "red"}
     for col, color in colors.items():
-        if col in df.columns:
+        if col in df.columns and df[col].notna().any():
             add_plots.append(mpf.make_addplot(df[col], color=color, width=0.8, label=col))
 
     # RSI subplot
@@ -35,7 +35,7 @@ def plot_stock(df, ticker, output=None):
     )
 
     # Add SMA legend to price panel
-    sma_labels = [col for col in colors if col in df.columns]
+    sma_labels = [col for col in colors if col in df.columns and df[col].notna().any()]
     if sma_labels:
         sma_colors = [colors[col] for col in sma_labels]
         axes[0].legend(

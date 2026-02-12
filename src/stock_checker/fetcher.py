@@ -1,4 +1,9 @@
+import logging
+
 import yfinance as yf
+
+# Suppress noisy yfinance HTTP auth warnings
+logging.getLogger("yfinance").setLevel(logging.CRITICAL)
 
 
 def fetch_stock(ticker, period="1y"):

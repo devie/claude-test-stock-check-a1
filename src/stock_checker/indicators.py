@@ -24,15 +24,34 @@ def calc_rsi(df, period=14):
 
 def get_summary(ticker_obj):
     """Extract summary info from a yfinance Ticker object."""
-    info = ticker_obj.info
+    # Try full info first, fall back to fast_info on auth errors
+    info = {}
+    try:
+        info = ticker_obj.info
+    except Exception:
+        pass
+
+    if info:
+        return {
+            "Name": info.get("longName") or info.get("shortName", "N/A"),
+            "Sector": info.get("sector", "N/A"),
+            "Market Cap": info.get("marketCap"),
+            "Current Price": info.get("currentPrice") or info.get("regularMarketPrice"),
+            "52W High": info.get("fiftyTwoWeekHigh"),
+            "52W Low": info.get("fiftyTwoWeekLow"),
+            "Avg Volume": info.get("averageVolume"),
+        }
+
+    # Fallback to fast_info (no auth required)
+    fi = ticker_obj.fast_info
     return {
-        "Name": info.get("longName") or info.get("shortName", "N/A"),
-        "Sector": info.get("sector", "N/A"),
-        "Market Cap": info.get("marketCap"),
-        "Current Price": info.get("currentPrice") or info.get("regularMarketPrice"),
-        "52W High": info.get("fiftyTwoWeekHigh"),
-        "52W Low": info.get("fiftyTwoWeekLow"),
-        "Avg Volume": info.get("averageVolume"),
+        "Name": ticker_obj.ticker,
+        "Sector": "N/A",
+        "Market Cap": fi.get("marketCap"),
+        "Current Price": fi.get("lastPrice"),
+        "52W High": fi.get("yearHigh"),
+        "52W Low": fi.get("yearLow"),
+        "Avg Volume": fi.get("threeMonthAverageVolume"),
     }
 
 

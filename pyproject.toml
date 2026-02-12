@@ -1,0 +1,22 @@
+[project]
+name = "stock-checker"
+version = "0.1.0"
+description = "CLI stock market analysis tool with charts and technical indicators"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "yfinance>=0.2.40",
+    "matplotlib>=3.9",
+    "mplfinance>=0.12.10",
+    "numpy>=1.26",
+]
+
+[project.scripts]
+stock-checker = "stock_checker.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.backends"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/stock_checker"]

@@ -1,5 +1,9 @@
+from pathlib import Path
+
 import mplfinance as mpf
 import matplotlib.pyplot as plt
+
+OUTPUT_DIR = Path("output")
 
 
 def plot_stock(df, ticker, output=None):
@@ -20,7 +24,11 @@ def plot_stock(df, ticker, output=None):
         add_plots.append(mpf.make_addplot(rsi_70, panel=2, color="gray", linestyle="--", width=0.5))
         add_plots.append(mpf.make_addplot(rsi_30, panel=2, color="gray", linestyle="--", width=0.5))
 
-    save_path = output or f"{ticker}_chart.png"
+    if output:
+        save_path = Path(output)
+    else:
+        OUTPUT_DIR.mkdir(exist_ok=True)
+        save_path = OUTPUT_DIR / f"{ticker}_chart.png"
 
     fig, axes = mpf.plot(
         df,

@@ -68,6 +68,15 @@ def get_financial_analysis(symbol):
             net_incomes = financials.loc["Net Income"] if "Net Income" in financials.index else None
             if net_incomes is not None:
                 anomaly_data["net_income"] = _safe(net_incomes.iloc[0])
+
+            # NPM for margin decline check
+            if revenues is not None and net_incomes is not None and len(revenues) >= 2:
+                rev0, rev1 = _safe(revenues.iloc[0]), _safe(revenues.iloc[1])
+                ni0, ni1 = _safe(net_incomes.iloc[0]), _safe(net_incomes.iloc[1])
+                if rev0 and ni0:
+                    anomaly_data["current_npm"] = (ni0 / rev0) * 100
+                if rev1 and ni1:
+                    anomaly_data["previous_npm"] = (ni1 / rev1) * 100
         except (KeyError, IndexError):
             pass
 
@@ -85,6 +94,18 @@ def get_financial_analysis(symbol):
             if receivables is not None and len(receivables) >= 2:
                 rec_vals = [_safe(v) for v in receivables.values]
                 anomaly_data["receivables_growth"] = calc_yoy_growth(rec_vals[0], rec_vals[1])
+        except (KeyError, IndexError, AttributeError):
+            pass
+
+        # DER for leverage check
+        try:
+            debt = balance.loc.get("Total Debt")
+            equity = balance.loc.get("Stockholders Equity")
+            if debt is not None and equity is not None:
+                d_val = _safe(debt.iloc[0])
+                e_val = _safe(equity.iloc[0])
+                if d_val is not None and e_val and e_val != 0:
+                    anomaly_data["der"] = d_val / e_val
         except (KeyError, IndexError, AttributeError):
             pass
 

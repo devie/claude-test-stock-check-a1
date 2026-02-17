@@ -80,12 +80,54 @@ def check_fcf_vs_net_income(fcf, net_income):
     return None
 
 
+def check_margin_decline(current_npm, previous_npm):
+    """Flag significant margin decline."""
+    if current_npm is None or previous_npm is None:
+        return None
+    decline = previous_npm - current_npm
+    if decline > 5:
+        return {
+            "type": "margin_decline",
+            "message": f"Net profit margin declined {decline:.1f}pp "
+                       f"(from {previous_npm:.1f}% to {current_npm:.1f}%)",
+            "severity": "warning",
+        }
+    return None
+
+
+def check_debt_ratio(der):
+    """Flag high debt-to-equity ratio."""
+    if der is None:
+        return None
+    if der > 2.0:
+        return {
+            "type": "high_leverage",
+            "message": f"High debt-to-equity ratio: {der:.2f}x (threshold: 2.0x)",
+            "severity": "warning" if der < 3.0 else "critical",
+        }
+    return None
+
+
+def check_revenue_decline(revenue_growth):
+    """Flag significant revenue decline."""
+    if revenue_growth is None:
+        return None
+    if revenue_growth < -10:
+        return {
+            "type": "revenue_decline",
+            "message": f"Revenue declined {revenue_growth:.1f}% year-over-year",
+            "severity": "warning" if revenue_growth > -20 else "critical",
+        }
+    return None
+
+
 def detect_anomalies(financials_data):
     """Run all anomaly detection checks on financial data.
 
     Args:
-        financials_data: dict with keys like 'revenue_series', 'receivables_series',
-                        'fcf', 'net_income', 'ratio_history'
+        financials_data: dict with keys like 'revenue_growth', 'receivables_growth',
+                        'fcf', 'net_income', 'ratio_history', 'current_npm',
+                        'previous_npm', 'der'
 
     Returns:
         list of anomaly dicts
@@ -102,16 +144,36 @@ def detect_anomalies(financials_data):
         anomalies.extend(zscore_anomalies)
 
     # Receivables vs revenue
-    rev_growth = financials_data.get("revenue_growth")
-    rec_growth = financials_data.get("receivables_growth")
-    check = check_receivables_vs_revenue(rev_growth, rec_growth)
+    check = check_receivables_vs_revenue(
+        financials_data.get("revenue_growth"),
+        financials_data.get("receivables_growth"),
+    )
     if check:
         anomalies.append(check)
 
     # FCF vs net income
-    fcf = financials_data.get("fcf")
-    ni = financials_data.get("net_income")
-    check = check_fcf_vs_net_income(fcf, ni)
+    check = check_fcf_vs_net_income(
+        financials_data.get("fcf"),
+        financials_data.get("net_income"),
+    )
+    if check:
+        anomalies.append(check)
+
+    # Margin decline
+    check = check_margin_decline(
+        financials_data.get("current_npm"),
+        financials_data.get("previous_npm"),
+    )
+    if check:
+        anomalies.append(check)
+
+    # High leverage
+    check = check_debt_ratio(financials_data.get("der"))
+    if check:
+        anomalies.append(check)
+
+    # Revenue decline
+    check = check_revenue_decline(financials_data.get("revenue_growth"))
     if check:
         anomalies.append(check)
 

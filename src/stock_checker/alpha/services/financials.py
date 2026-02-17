@@ -54,7 +54,7 @@ def get_financial_analysis(symbol):
     cashflow = get_cashflow(symbol)
 
     # Calculate ratios
-    ratios = calc_all_ratios(info, financials, balance)
+    ratios = calc_all_ratios(info, financials, balance, cashflow)
 
     # Build anomaly detection data
     anomaly_data = {}

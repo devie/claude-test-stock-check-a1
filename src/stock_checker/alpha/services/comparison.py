@@ -1,7 +1,7 @@
 """Multi-ticker comparison service."""
 
 import math
-from stock_checker.alpha.services.data_fetcher import get_info, get_financials, get_balance_sheet
+from stock_checker.alpha.services.data_fetcher import get_info, get_financials, get_balance_sheet, get_cashflow
 from stock_checker.alpha.calculations.ratios import calc_all_ratios
 from stock_checker.indicators import format_number
 
@@ -42,13 +42,15 @@ def compare_tickers(tickers, categories=None):
     for symbol in tickers:
         try:
             info = get_info(symbol)
-            if not info:
+            financials = get_financials(symbol)
+            balance = get_balance_sheet(symbol)
+            cashflow = get_cashflow(symbol)
+
+            if not info and (financials is None or financials.empty):
                 results[symbol] = {"error": f"No data for {symbol}"}
                 continue
 
-            financials = get_financials(symbol)
-            balance = get_balance_sheet(symbol)
-            ratios = calc_all_ratios(info, financials, balance)
+            ratios = calc_all_ratios(info, financials, balance, cashflow)
 
             ticker_data = {
                 "name": info.get("longName") or info.get("shortName", symbol),

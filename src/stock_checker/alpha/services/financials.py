@@ -90,11 +90,38 @@ def get_financial_analysis(symbol):
 
     anomalies = detect_anomalies(anomaly_data)
 
+    # Price summary from info/fast_info
+    price_summary = {
+        "current_price": _safe(info.get("currentPrice") or info.get("regularMarketPrice")),
+        "market_cap": _safe(info.get("marketCap")),
+        "52w_high": _safe(info.get("fiftyTwoWeekHigh")),
+        "52w_low": _safe(info.get("fiftyTwoWeekLow")),
+        "shares_outstanding": _safe(info.get("sharesOutstanding")),
+        "currency": info.get("currency", "N/A"),
+        "avg_volume": _safe(info.get("averageVolume")),
+    }
+
+    # Key financial highlights (latest year)
+    highlights = {}
+    if financials is not None and not financials.empty:
+        latest = financials.iloc[:, 0]
+        for key in ["Total Revenue", "Gross Profit", "Operating Income",
+                     "Net Income", "EBITDA", "Basic EPS"]:
+            if key in latest.index:
+                highlights[key] = _safe(latest[key])
+    if cashflow is not None and not cashflow.empty:
+        cf_latest = cashflow.iloc[:, 0]
+        for key in ["Operating Cash Flow", "Free Cash Flow", "Capital Expenditure"]:
+            if key in cf_latest.index:
+                highlights[key] = _safe(cf_latest[key])
+
     return {
         "ticker": symbol,
         "name": info.get("longName") or info.get("shortName", symbol),
         "sector": info.get("sector", "N/A"),
         "industry": info.get("industry", "N/A"),
+        "price_summary": price_summary,
+        "highlights": highlights,
         "ratios": {k: round(v, 2) if v is not None else None for k, v in ratios.items()},
         "income_statement": _df_to_dict(financials),
         "quarterly_income": _df_to_dict(quarterly),

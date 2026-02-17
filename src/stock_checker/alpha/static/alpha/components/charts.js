@@ -39,29 +39,49 @@ const Charts = {
     },
 
     /**
-     * Render a radar chart for multi-metric comparison
+     * Render a radar chart with normalized values (0-100 scale)
      */
     radarChart(containerId, tickers, metrics, dataByTicker) {
-        const colors = ['#2196F3', '#26a69a', '#FF9800', '#9C27B0', '#ef5350'];
+        const colors = ['#2196F3', '#26a69a', '#FF9800', '#9C27B0', '#ef5350', '#00BCD4', '#E91E63', '#8BC34A'];
+
+        // Normalize each metric to 0-100 range across tickers
+        const normalized = {};
+        tickers.forEach(t => { normalized[t] = {}; });
+
+        metrics.forEach(m => {
+            const vals = tickers.map(t => dataByTicker[t]?.[m]).filter(v => v != null && isFinite(v));
+            const min = Math.min(...vals, 0);
+            const max = Math.max(...vals, 1);
+            const range = max - min || 1;
+            tickers.forEach(t => {
+                const v = dataByTicker[t]?.[m];
+                normalized[t][m] = (v != null && isFinite(v)) ? ((v - min) / range) * 100 : 0;
+            });
+        });
+
         const traces = tickers.map((ticker, i) => ({
             type: 'scatterpolar',
-            r: metrics.map(m => dataByTicker[ticker]?.[m] ?? 0),
+            r: metrics.map(m => normalized[ticker][m]),
             theta: metrics,
             fill: 'toself',
             name: ticker,
             line: { color: colors[i % colors.length] },
-            opacity: 0.7,
+            opacity: 0.6,
+            hovertemplate: metrics.map(m =>
+                `${m}: ${dataByTicker[ticker]?.[m] != null ? dataByTicker[ticker][m].toFixed(2) : 'N/A'}`
+            ).join('<br>') + '<extra>%{fullData.name}</extra>',
         }));
 
         const layout = {
             ...this.darkLayout,
             polar: {
                 bgcolor: '#1e1e2f',
-                radialaxis: { gridcolor: '#2a2a3e', color: '#a0a0b0' },
+                radialaxis: { gridcolor: '#2a2a3e', color: '#a0a0b0', range: [0, 100], showticklabels: false },
                 angularaxis: { gridcolor: '#2a2a3e', color: '#a0a0b0' },
             },
-            title: { text: 'Metric Comparison', font: { size: 14 } },
-            height: 400,
+            title: { text: 'Normalized Comparison (0-100)', font: { size: 14 } },
+            height: 450,
+            legend: { font: { size: 11 } },
         };
         Plotly.newPlot(containerId, traces, layout, this.config);
     },

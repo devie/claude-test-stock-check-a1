@@ -47,12 +47,27 @@ const Tables = {
         return html;
     },
 
+    // Key items to highlight in financial statements
+    KEY_INCOME_ITEMS: [
+        'Total Revenue', 'Cost Of Revenue', 'Gross Profit', 'Operating Expense',
+        'Operating Income', 'Net Income', 'EBITDA', 'Basic EPS', 'Diluted EPS',
+    ],
+    KEY_BALANCE_ITEMS: [
+        'Total Assets', 'Current Assets', 'Cash And Cash Equivalents',
+        'Net Receivables', 'Total Liabilities Net Minority Interest',
+        'Current Liabilities', 'Total Debt', 'Stockholders Equity',
+    ],
+    KEY_CASHFLOW_ITEMS: [
+        'Operating Cash Flow', 'Capital Expenditure', 'Free Cash Flow',
+        'Investing Cash Flow', 'Financing Cash Flow',
+    ],
+
     /**
      * Render financial statement table (periods as columns)
      */
     financialStatement(statementData, title) {
         if (!statementData || Object.keys(statementData).length === 0) {
-            return `<div class="card-title">${title}</div><p class="text-muted">No data available</p>`;
+            return `<div class="card-title">${title}</div><p style="color:var(--text-muted)">No data available</p>`;
         }
 
         // Get all periods (dates)
@@ -64,15 +79,31 @@ const Tables = {
         }
         const periods = [...allPeriods].sort().reverse();
 
-        let html = `<div class="card-title">${title}</div>`;
-        html += '<div style="overflow-x:auto"><table class="data-table"><thead><tr><th>Item</th>';
+        // Determine which key items apply
+        const allItems = Object.keys(statementData);
+        let keyItems = [];
+        if (allItems.some(i => Tables.KEY_INCOME_ITEMS.includes(i))) keyItems = Tables.KEY_INCOME_ITEMS;
+        else if (allItems.some(i => Tables.KEY_BALANCE_ITEMS.includes(i))) keyItems = Tables.KEY_BALANCE_ITEMS;
+        else if (allItems.some(i => Tables.KEY_CASHFLOW_ITEMS.includes(i))) keyItems = Tables.KEY_CASHFLOW_ITEMS;
+
+        const uid = 'stmt-' + Math.random().toString(36).substring(2, 8);
+
+        let html = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <div class="card-title" style="margin:0">${title}</div>
+            ${keyItems.length > 0 ? `<label style="font-size:0.8em;color:var(--text-secondary);cursor:pointer">
+                <input type="checkbox" id="${uid}-toggle" checked onchange="Tables.toggleKeyItems('${uid}')"> Key items only
+            </label>` : ''}
+        </div>`;
+        html += `<div style="overflow-x:auto"><table class="data-table" id="${uid}"><thead><tr><th>Item</th>`;
         for (const p of periods) {
             html += `<th>${p.substring(0, 4)}</th>`;
         }
         html += '</tr></thead><tbody>';
 
         for (const [item, values] of Object.entries(statementData)) {
-            html += `<tr><td>${item}</td>`;
+            const isKey = keyItems.length === 0 || keyItems.includes(item);
+            html += `<tr class="${isKey ? 'key-item' : 'minor-item'}" ${!isKey ? 'style="display:none"' : ''}>`;
+            html += `<td style="${isKey ? 'font-weight:600' : ''}">${item}</td>`;
             for (const p of periods) {
                 const v = values[p];
                 html += `<td>${Tables.formatValue(v, true)}</td>`;
@@ -82,6 +113,14 @@ const Tables = {
 
         html += '</tbody></table></div>';
         return html;
+    },
+
+    toggleKeyItems(uid) {
+        const checked = document.getElementById(`${uid}-toggle`).checked;
+        const table = document.getElementById(uid);
+        table.querySelectorAll('.minor-item').forEach(row => {
+            row.style.display = checked ? 'none' : '';
+        });
     },
 
     /**

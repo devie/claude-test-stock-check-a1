@@ -11,7 +11,7 @@ def create_alpha_blueprint():
         __name__,
         template_folder="templates",
         static_folder="static",
-        static_url_path="/alpha/static",
+        static_url_path="static",
         url_prefix="/alpha",
     )
 

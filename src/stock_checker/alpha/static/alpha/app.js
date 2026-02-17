@@ -122,48 +122,112 @@ const App = {
                 this.api('/api/trends', { method: 'POST', body: { ticker } }),
             ]);
 
-            // Ratios card
-            const ratiosHtml = Tables.keyValue(fin.ratios, { title: 'Key Ratios' });
+            const fv = Tables.formatValue;
+            const ps = fin.price_summary || {};
+            const hl = fin.highlights || {};
+
+            // Price summary card
+            const priceSummaryHtml = `
+                <div class="card">
+                    <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px">
+                        <div>
+                            <span style="font-size:2em;font-weight:700">${fv(ps.current_price)}</span>
+                            <span style="color:var(--text-muted);margin-left:4px">${ps.currency || ''}</span>
+                        </div>
+                        <div style="display:flex;gap:16px;flex-wrap:wrap">
+                            <div><span style="color:var(--text-muted);font-size:0.8em">Mkt Cap</span><br>${fv(ps.market_cap, true)}</div>
+                            <div><span style="color:var(--text-muted);font-size:0.8em">52W High</span><br>${fv(ps['52w_high'])}</div>
+                            <div><span style="color:var(--text-muted);font-size:0.8em">52W Low</span><br>${fv(ps['52w_low'])}</div>
+                            <div><span style="color:var(--text-muted);font-size:0.8em">Shares</span><br>${fv(ps.shares_outstanding, true)}</div>
+                            <div><span style="color:var(--text-muted);font-size:0.8em">Avg Vol</span><br>${fv(ps.avg_volume, true)}</div>
+                        </div>
+                    </div>
+                </div>`;
+
+            // Highlights card
+            let highlightsHtml = '';
+            if (Object.keys(hl).length > 0) {
+                highlightsHtml = '<div class="card"><div class="card-title">Latest Year Highlights</div><div class="grid grid-3">' +
+                    Object.entries(hl).map(([k, v]) => `
+                        <div style="padding:8px;background:var(--bg-input);border-radius:var(--radius)">
+                            <div style="color:var(--text-muted);font-size:0.8em">${k}</div>
+                            <div style="font-size:1.1em;font-weight:600">${fv(v, true)}</div>
+                        </div>
+                    `).join('') + '</div></div>';
+            }
+
+            // Ratios - split into categories
+            const ratioCategories = {
+                'Valuation': ['PER', 'PBV', 'EV/EBITDA', 'PEG'],
+                'Profitability': ['ROE', 'ROA', 'NPM', 'GPM'],
+                'Risk & Leverage': ['Beta', 'DER', 'Current Ratio', 'Dividend Yield'],
+            };
+            let ratiosHtml = '<div class="grid grid-3">';
+            for (const [cat, keys] of Object.entries(ratioCategories)) {
+                const filtered = {};
+                keys.forEach(k => { if (fin.ratios[k] !== undefined) filtered[k] = fin.ratios[k]; });
+                ratiosHtml += `<div class="card"><div class="card-title">${cat}</div>${Tables.keyValue(filtered)}</div>`;
+            }
+            ratiosHtml += '</div>';
 
             // Anomalies
             let anomalyHtml = '';
             if (fin.anomalies && fin.anomalies.length > 0) {
-                anomalyHtml = '<div class="card-title">Anomaly Alerts</div>' +
+                anomalyHtml = '<div class="card"><div class="card-title">Anomaly Alerts</div>' +
                     fin.anomalies.map(a => `
                         <div class="anomaly-alert anomaly-${a.severity || 'info'}">
                             ${a.message || `${a.type}: ${a.label} = ${a.value} (z=${a.z_score})`}
                         </div>
-                    `).join('');
+                    `).join('') + '</div>';
             }
 
-            // Trend charts - pick key metrics
-            const trendChartsHtml = ['Total Revenue', 'Net Income', 'Operating Cash Flow']
-                .filter(m => trends.annual && trends.annual[m])
-                .map((m, i) => `<div id="trend-chart-${i}" style="margin-bottom:16px"></div>`)
-                .join('');
+            // Trend charts
+            const trendMetrics = ['Total Revenue', 'Net Income', 'Operating Cash Flow', 'Free Cash Flow', 'Basic EPS', 'Total Assets']
+                .filter(m => trends.annual && trends.annual[m]);
+            const trendChartsHtml = trendMetrics.length > 0
+                ? '<div class="grid grid-2">' + trendMetrics.map((m, i) =>
+                    `<div class="card"><div id="trend-chart-${i}"></div>${
+                        trends.annual[m].cagr != null
+                        ? `<div style="text-align:center;margin-top:4px"><span class="badge ${trends.annual[m].cagr >= 0 ? 'badge-green' : 'badge-red'}">CAGR: ${trends.annual[m].cagr > 0 ? '+' : ''}${trends.annual[m].cagr}%</span></div>`
+                        : ''
+                    }</div>`
+                ).join('') + '</div>'
+                : '';
+
+            // Financial statement tabs
+            const stmtTabs = `
+                <div class="card">
+                    <div style="display:flex;gap:8px;margin-bottom:12px">
+                        <button class="btn btn-sm btn-primary" onclick="App._showStmt('income')">Income Statement</button>
+                        <button class="btn btn-sm btn-secondary" onclick="App._showStmt('balance')">Balance Sheet</button>
+                        <button class="btn btn-sm btn-secondary" onclick="App._showStmt('cashflow')">Cash Flow</button>
+                        <button class="btn btn-sm btn-secondary" onclick="App._showStmt('quarterly')">Quarterly</button>
+                    </div>
+                    <div id="stmt-income">${Tables.financialStatement(fin.income_statement, 'Income Statement (Annual)')}</div>
+                    <div id="stmt-balance" class="hidden">${Tables.financialStatement(fin.balance_sheet, 'Balance Sheet')}</div>
+                    <div id="stmt-cashflow" class="hidden">${Tables.financialStatement(fin.cash_flow, 'Cash Flow')}</div>
+                    <div id="stmt-quarterly" class="hidden">${Tables.financialStatement(fin.quarterly_income, 'Income Statement (Quarterly)')}</div>
+                </div>`;
 
             this.render(`
                 <div class="section-header">
-                    <h2>${fin.name} (${fin.ticker})</h2>
-                    <div>
+                    <h2>${fin.name || ticker} <span style="color:var(--text-muted);font-weight:400">(${fin.ticker})</span></h2>
+                    <div style="display:flex;gap:8px;align-items:center">
                         <span class="badge badge-blue">${fin.sector}</span>
                         <span class="badge badge-purple">${fin.industry}</span>
-                        <button class="btn btn-sm btn-secondary" onclick="Router.navigate('#model/${ticker}')">Model</button>
+                        <button class="btn btn-sm btn-primary" onclick="Router.navigate('#model/${ticker}')">DCF Model</button>
+                        <button class="btn btn-sm btn-secondary" onclick="App.saveSnapshot('${ticker}', ${JSON.stringify(fin.ratios).replace(/"/g, '&quot;')})">Save Snapshot</button>
                     </div>
                 </div>
-                <div class="grid grid-2">
-                    <div class="card">${ratiosHtml}</div>
-                    <div class="card">${anomalyHtml || '<div class="card-title">No Anomalies Detected</div><p style="color:var(--text-muted)">All checks passed.</p>'}</div>
-                </div>
-                <div class="card">${trendChartsHtml || '<p style="color:var(--text-muted)">No trend data available.</p>'}</div>
-                <div class="card">${Tables.financialStatement(fin.income_statement, 'Income Statement')}</div>
-                <div class="card">${Tables.financialStatement(fin.balance_sheet, 'Balance Sheet')}</div>
-                <div class="card">${Tables.financialStatement(fin.cash_flow, 'Cash Flow')}</div>
+                ${priceSummaryHtml}
+                ${highlightsHtml}
+                ${ratiosHtml}
+                ${anomalyHtml}
+                ${trendChartsHtml}
+                ${stmtTabs}
             `);
 
-            // Render trend charts
-            const trendMetrics = ['Total Revenue', 'Net Income', 'Operating Cash Flow']
-                .filter(m => trends.annual && trends.annual[m]);
+            // Render trend charts after DOM is ready
             trendMetrics.forEach((m, i) => {
                 const td = trends.annual[m].data;
                 Charts.trendLine(
@@ -177,6 +241,25 @@ const App = {
             this.render(`<div class="card"><p class="val-negative">Error: ${e.message}</p></div>`);
         }
         this.hideLoading();
+    },
+
+    _showStmt(which) {
+        ['income', 'balance', 'cashflow', 'quarterly'].forEach(id => {
+            document.getElementById(`stmt-${id}`).classList.toggle('hidden', id !== which);
+        });
+        // Update button styles
+        const parent = document.getElementById(`stmt-${which}`).parentElement;
+        parent.querySelectorAll('.btn').forEach((btn, i) => {
+            const targets = ['income', 'balance', 'cashflow', 'quarterly'];
+            btn.className = `btn btn-sm ${targets[i] === which ? 'btn-primary' : 'btn-secondary'}`;
+        });
+    },
+
+    async saveSnapshot(ticker, ratios) {
+        try {
+            await this.api('/api/snapshots', { method: 'POST', body: { ticker, data: ratios } });
+            this.toast('Snapshot saved!', 'success');
+        } catch (e) { this.toast(e.message, 'error'); }
     },
 
     // --- Compare ---

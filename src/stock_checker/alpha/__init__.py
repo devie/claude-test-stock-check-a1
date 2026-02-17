@@ -1,6 +1,6 @@
 """Stock Review Intelligence - Alpha module."""
 
-from flask import Blueprint
+from flask import Blueprint, jsonify
 from stock_checker.alpha.models.database import db
 
 
@@ -26,6 +26,15 @@ def create_alpha_blueprint():
     alpha_bp.register_blueprint(modelling.bp)
     alpha_bp.register_blueprint(portfolio.bp)
     alpha_bp.register_blueprint(export.bp)
+
+    # Error handlers for the blueprint
+    @alpha_bp.errorhandler(404)
+    def not_found(e):
+        return jsonify({"error": "Resource not found"}), 404
+
+    @alpha_bp.errorhandler(500)
+    def internal_error(e):
+        return jsonify({"error": "Internal server error"}), 500
 
     return alpha_bp
 

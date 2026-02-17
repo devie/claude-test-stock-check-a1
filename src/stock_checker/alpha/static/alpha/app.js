@@ -39,7 +39,42 @@ const App = {
     },
 
     render(html) {
-        document.getElementById('page-content').innerHTML = html;
+        const el = document.getElementById('page-content');
+        el.innerHTML = html;
+        el.classList.add('fade-in');
+        setTimeout(() => el.classList.remove('fade-in'), 300);
+    },
+
+    renderSkeleton(type = 'detail') {
+        const skeletons = {
+            detail: `
+                <div class="skeleton skeleton-title"></div>
+                <div class="skeleton skeleton-card"></div>
+                <div class="grid grid-3"><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div></div>
+                <div class="skeleton skeleton-chart"></div>`,
+            compare: `
+                <div class="skeleton skeleton-title"></div>
+                <div class="skeleton skeleton-card"></div>
+                <div class="grid grid-2"><div class="skeleton skeleton-chart"></div><div class="skeleton skeleton-chart"></div></div>`,
+            list: `
+                <div class="skeleton skeleton-title"></div>
+                <div class="skeleton skeleton-card"></div>
+                <div class="skeleton skeleton-card"></div>
+                <div class="skeleton skeleton-card"></div>`,
+        };
+        document.getElementById('page-content').innerHTML = skeletons[type] || skeletons.list;
+    },
+
+    renderError(message, retryFn) {
+        let html = `<div class="error-state"><h3>Something went wrong</h3><p>${message}</p>`;
+        if (retryFn) {
+            html += `<button class="btn btn-primary" id="btn-retry">Try Again</button>`;
+        }
+        html += '</div>';
+        this.render(html);
+        if (retryFn) {
+            document.getElementById('btn-retry').onclick = retryFn;
+        }
     },
 
     // ====== PAGE RENDERERS ======
@@ -115,6 +150,7 @@ const App = {
             this.render('<div class="empty-state"><h3>Enter a ticker to analyze</h3></div>');
             return;
         }
+        this.renderSkeleton('detail');
         this.showLoading();
         try {
             const [fin, trends] = await Promise.all([
@@ -238,7 +274,7 @@ const App = {
                 );
             });
         } catch (e) {
-            this.render(`<div class="card"><p class="val-negative">Error: ${e.message}</p></div>`);
+            this.renderError(e.message, () => this.renderDetail(ticker));
         }
         this.hideLoading();
     },
@@ -891,6 +927,12 @@ document.addEventListener('DOMContentLoaded', () => {
             const ticker = e.target.value.trim().toUpperCase();
             if (ticker) Router.navigate(`#detail/${ticker}`);
         }
+    });
+
+    // Scroll-to-top button visibility
+    const scrollBtn = document.getElementById('scroll-top');
+    window.addEventListener('scroll', () => {
+        scrollBtn.style.display = window.scrollY > 300 ? 'block' : 'none';
     });
 
     Router.init();

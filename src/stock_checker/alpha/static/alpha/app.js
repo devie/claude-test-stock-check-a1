@@ -737,8 +737,30 @@ const App = {
     },
 
     async editNote(id) {
-        // Simple: scroll to form and populate (for MVP)
-        this.toast('Edit by creating a new note with same ticker/title', 'info');
+        try {
+            const notes = await this.api('/api/notes');
+            const note = notes.find(n => n.id === id);
+            if (!note) { this.toast('Note not found', 'error'); return; }
+            document.getElementById('note-ticker').value = note.ticker;
+            document.getElementById('note-title').value = note.title;
+            document.getElementById('note-content').value = note.content || '';
+            document.getElementById('note-tags').value = (note.tags || []).join(', ');
+            // Change save button to update
+            const btn = document.getElementById('btn-save-note');
+            btn.textContent = 'Update Note';
+            btn.onclick = async () => {
+                const ticker = document.getElementById('note-ticker').value.trim();
+                const title = document.getElementById('note-title').value.trim();
+                const content = document.getElementById('note-content').value;
+                const tags = document.getElementById('note-tags').value;
+                try {
+                    await this.api(`/api/notes/${id}`, { method: 'PUT', body: { title, content, tags } });
+                    this.toast('Note updated', 'success');
+                    this.renderNotes();
+                } catch (e) { this.toast(e.message, 'error'); }
+            };
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        } catch (e) { this.toast(e.message, 'error'); }
     },
 
     // --- Watchlists ---

@@ -419,45 +419,62 @@ const App = {
         this.render(`
             <div class="section-header">
                 <h2>Modelling: ${ticker}</h2>
-                <button class="btn btn-sm btn-secondary" onclick="Router.navigate('#detail/${ticker}')">Back to Detail</button>
-            </div>
-
-            <div class="card">
-                <div class="card-title">DCF Valuation</div>
-                <div id="dcf-form">${Forms.dcfForm()}</div>
-                <button class="btn btn-primary" id="btn-dcf">Run DCF</button>
-                <div id="dcf-results" style="margin-top:16px"></div>
-            </div>
-
-            <div class="card">
-                <div class="card-title">Scenario Analysis</div>
-                <div id="scenario-form">${Forms.scenarioForm()}</div>
-                <button class="btn btn-primary" id="btn-scenario">Run Scenarios</button>
-                <div id="scenario-results" style="margin-top:16px"></div>
-            </div>
-
-            <div class="card">
-                <div class="card-title">Sensitivity Matrix</div>
-                <button class="btn btn-primary" id="btn-sensitivity">Generate Heatmap</button>
-                <div id="sensitivity-results" style="margin-top:16px"></div>
-            </div>
-
-            <div class="card">
-                <div class="card-title">Linear Projection</div>
-                <div class="form-group">
-                    <label>Metric</label>
-                    <select id="proj-metric">
-                        <option value="Total Revenue">Total Revenue</option>
-                        <option value="Net Income">Net Income</option>
-                        <option value="Operating Cash Flow">Operating Cash Flow</option>
-                        <option value="Free Cash Flow">Free Cash Flow</option>
-                        <option value="Gross Profit">Gross Profit</option>
-                    </select>
+                <div style="display:flex;gap:8px">
+                    <button class="btn btn-sm btn-secondary" onclick="Router.navigate('#detail/${ticker}')">Back to Detail</button>
+                    <button class="btn btn-sm btn-secondary" onclick="App._saveValuation('${ticker}')">Save Results</button>
                 </div>
-                <button class="btn btn-primary" id="btn-projection">Project</button>
-                <div id="projection-results" style="margin-top:16px"></div>
+            </div>
+
+            <div class="grid grid-2">
+                <div class="card">
+                    <div class="card-title">DCF Valuation</div>
+                    <div id="dcf-form">${Forms.dcfForm()}</div>
+                    <button class="btn btn-primary" id="btn-dcf">Run DCF</button>
+                    <div id="dcf-results" style="margin-top:16px"></div>
+                </div>
+                <div class="card">
+                    <div class="card-title">Scenario Analysis</div>
+                    <div id="scenario-form">${Forms.scenarioForm()}</div>
+                    <div class="form-row">
+                        ${Forms.group('WACC (%)', 'scenario_wacc', 'number', 10, { step: '0.5', min: '1', max: '30' })}
+                        ${Forms.group('Terminal Growth (%)', 'scenario_tg', 'number', 3, { step: '0.5', min: '0', max: '10' })}
+                    </div>
+                    <button class="btn btn-primary" id="btn-scenario">Run Scenarios</button>
+                    <div id="scenario-results" style="margin-top:16px"></div>
+                </div>
+            </div>
+
+            <div class="grid grid-2">
+                <div class="card">
+                    <div class="card-title">Sensitivity Matrix</div>
+                    <p style="color:var(--text-muted);font-size:0.85em;margin-bottom:12px">WACC vs Growth Rate heatmap showing intrinsic value per share</p>
+                    <button class="btn btn-primary" id="btn-sensitivity">Generate Heatmap</button>
+                    <div id="sensitivity-results" style="margin-top:16px"></div>
+                </div>
+                <div class="card">
+                    <div class="card-title">Linear Projection</div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Metric</label>
+                            <select id="proj-metric">
+                                <option value="Total Revenue">Total Revenue</option>
+                                <option value="Net Income">Net Income</option>
+                                <option value="Operating Cash Flow">Operating Cash Flow</option>
+                                <option value="Free Cash Flow">Free Cash Flow</option>
+                                <option value="Gross Profit">Gross Profit</option>
+                                <option value="Basic EPS">Basic EPS</option>
+                            </select>
+                        </div>
+                        ${Forms.group('Periods Ahead', 'proj_periods', 'number', 4, { step: '1', min: '1', max: '10' })}
+                    </div>
+                    <button class="btn btn-primary" id="btn-projection">Project</button>
+                    <div id="projection-results" style="margin-top:16px"></div>
+                </div>
             </div>
         `);
+
+        this._modelTicker = ticker;
+        this._modelResults = {};
 
         // DCF
         document.getElementById('btn-dcf').onclick = async () => {
@@ -474,22 +491,45 @@ const App = {
                         projection_years: vals.projection_years,
                     },
                 });
+                this._modelResults.dcf = result;
                 if (result.error) {
                     document.getElementById('dcf-results').innerHTML = `<p class="val-negative">${result.error}</p>`;
                 } else {
                     const upside = result.upside_pct != null
-                        ? `<span class="${result.upside_pct >= 0 ? 'val-positive' : 'val-negative'}">${result.upside_pct > 0 ? '+' : ''}${result.upside_pct}%</span>`
+                        ? `<span class="${result.upside_pct >= 0 ? 'val-positive' : 'val-negative'}" style="font-size:1.2em;font-weight:700">${result.upside_pct > 0 ? '+' : ''}${result.upside_pct}%</span>`
                         : '';
-                    document.getElementById('dcf-results').innerHTML = Tables.keyValue({
-                        'FCF Base': Tables.formatValue(result.fcf_base, true),
-                        'Sum PV of FCFs': Tables.formatValue(result.sum_pv_fcf, true),
-                        'PV Terminal Value': Tables.formatValue(result.pv_terminal, true),
-                        'Enterprise Value': Tables.formatValue(result.enterprise_value, true),
-                        'Equity Value': Tables.formatValue(result.equity_value, true),
-                        'Intrinsic/Share': result.intrinsic_per_share != null ? result.intrinsic_per_share.toFixed(2) : 'N/A',
-                        'Current Price': result.current_price != null ? result.current_price.toFixed(2) : 'N/A',
-                        'Upside/Downside': upside || 'N/A',
-                    });
+                    const verdict = result.upside_pct != null
+                        ? (result.upside_pct > 20 ? '<span class="badge badge-green">Undervalued</span>'
+                           : result.upside_pct < -20 ? '<span class="badge badge-red">Overvalued</span>'
+                           : '<span class="badge badge-orange">Fair Value</span>')
+                        : '';
+                    document.getElementById('dcf-results').innerHTML = `
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                            <div>
+                                <div style="color:var(--text-muted);font-size:0.8em">Intrinsic Value / Share</div>
+                                <div style="font-size:1.8em;font-weight:700">${result.intrinsic_per_share != null ? result.intrinsic_per_share.toFixed(2) : 'N/A'}</div>
+                            </div>
+                            <div style="text-align:right">
+                                <div style="color:var(--text-muted);font-size:0.8em">Current: ${result.current_price != null ? result.current_price.toFixed(2) : 'N/A'}</div>
+                                <div>${upside} ${verdict}</div>
+                            </div>
+                        </div>
+                        ${Tables.keyValue({
+                            'FCF Base': Tables.formatValue(result.fcf_base, true),
+                            'Sum PV of FCFs': Tables.formatValue(result.sum_pv_fcf, true),
+                            'PV Terminal Value': Tables.formatValue(result.pv_terminal, true),
+                            'Enterprise Value': Tables.formatValue(result.enterprise_value, true),
+                            'Net Debt': Tables.formatValue(result.net_debt, true),
+                            'Shares Outstanding': Tables.formatValue(result.shares_outstanding, true),
+                        })}
+                        <div id="dcf-chart" style="margin-top:12px"></div>
+                    `;
+                    // FCF projection chart
+                    Charts.trendLine('dcf-chart', 'Projected FCF',
+                        result.projected_fcf.map((_, i) => `Y${i + 1}`),
+                        result.projected_fcf,
+                        null
+                    );
                 }
             } catch (e) {
                 document.getElementById('dcf-results').innerHTML = `<p class="val-negative">${e.message}</p>`;
@@ -500,6 +540,8 @@ const App = {
         // Scenario
         document.getElementById('btn-scenario').onclick = async () => {
             const vals = Forms.readValues('scenario-form');
+            const wacc = (parseFloat(document.getElementById('scenario_wacc').value) || 10) / 100;
+            const tg = (parseFloat(document.getElementById('scenario_tg').value) || 3) / 100;
             this.showLoading();
             try {
                 const result = await this.api('/api/model/scenario', {
@@ -507,20 +549,38 @@ const App = {
                     body: {
                         ticker,
                         scenarios: { bull: vals.bull / 100, base: vals.base / 100, bear: vals.bear / 100 },
+                        wacc: wacc,
+                        terminal_growth: tg,
                     },
                 });
+                this._modelResults.scenario = result;
                 if (result.error) {
                     document.getElementById('scenario-results').innerHTML = `<p class="val-negative">${result.error}</p>`;
                 } else {
-                    let html = '<table class="data-table"><thead><tr><th>Scenario</th><th>Intrinsic/Share</th><th>Equity Value</th></tr></thead><tbody>';
+                    const cp = result.current_price;
+                    let html = '<table class="data-table"><thead><tr><th>Scenario</th><th>Growth</th><th>Intrinsic/Share</th><th>vs Current</th></tr></thead><tbody>';
+                    const scenarioColors = { bull: 'badge-green', base: 'badge-blue', bear: 'badge-red' };
                     for (const [name, data] of Object.entries(result.scenarios)) {
-                        html += `<tr><td>${name.charAt(0).toUpperCase() + name.slice(1)}</td>
-                            <td>${data.intrinsic_per_share != null ? data.intrinsic_per_share.toFixed(2) : 'N/A'}</td>
-                            <td>${Tables.formatValue(data.equity_value, true)}</td></tr>`;
+                        const iv = data.intrinsic_per_share;
+                        const diff = (iv && cp) ? ((iv - cp) / cp * 100).toFixed(1) : null;
+                        const diffClass = diff != null ? (diff >= 0 ? 'val-positive' : 'val-negative') : '';
+                        html += `<tr>
+                            <td><span class="badge ${scenarioColors[name] || 'badge-blue'}">${name.charAt(0).toUpperCase() + name.slice(1)}</span></td>
+                            <td>${(vals[name] || 0)}%</td>
+                            <td style="font-weight:600">${iv != null ? iv.toFixed(2) : 'N/A'}</td>
+                            <td class="${diffClass}">${diff != null ? `${diff > 0 ? '+' : ''}${diff}%` : '-'}</td>
+                        </tr>`;
                     }
                     html += '</tbody></table>';
-                    if (result.current_price) html += `<p style="margin-top:8px;color:var(--text-secondary)">Current price: ${result.current_price.toFixed(2)}</p>`;
+                    if (cp) html += `<p style="margin-top:8px;color:var(--text-secondary)">Current price: ${cp.toFixed(2)}</p>`;
+
+                    // Scenario bar chart
+                    html += '<div id="scenario-chart" style="margin-top:12px"></div>';
                     document.getElementById('scenario-results').innerHTML = html;
+
+                    const names = Object.keys(result.scenarios);
+                    const values = names.map(n => result.scenarios[n].intrinsic_per_share || 0);
+                    Charts.comparisonBar('scenario-chart', names.map(n => n.charAt(0).toUpperCase() + n.slice(1)), 'Intrinsic Value / Share', values);
                 }
             } catch (e) {
                 document.getElementById('scenario-results').innerHTML = `<p class="val-negative">${e.message}</p>`;
@@ -536,11 +596,12 @@ const App = {
                     method: 'POST',
                     body: { ticker },
                 });
+                this._modelResults.sensitivity = result;
                 if (result.error) {
                     document.getElementById('sensitivity-results').innerHTML = `<p class="val-negative">${result.error}</p>`;
                 } else {
                     document.getElementById('sensitivity-results').innerHTML = '<div id="sens-heatmap"></div>';
-                    Charts.heatmap('sens-heatmap', 'Intrinsic Value per Share',
+                    Charts.heatmap('sens-heatmap', 'Intrinsic Value / Share',
                         result.growth_labels, result.wacc_labels, result.matrix);
                 }
             } catch (e) {
@@ -552,21 +613,26 @@ const App = {
         // Projection
         document.getElementById('btn-projection').onclick = async () => {
             const metric = document.getElementById('proj-metric').value;
+            const periods = parseInt(document.getElementById('proj_periods').value) || 4;
             this.showLoading();
             try {
                 const result = await this.api('/api/model/projection', {
                     method: 'POST',
-                    body: { ticker, metric },
+                    body: { ticker, metric, periods_ahead: periods },
                 });
+                this._modelResults.projection = result;
                 if (result.error) {
                     document.getElementById('projection-results').innerHTML = `<p class="val-negative">${result.error}</p>`;
                 } else {
                     document.getElementById('projection-results').innerHTML =
                         `<div id="proj-chart"></div>
-                         <p style="margin-top:8px;color:var(--text-secondary)">R² = ${result.r_squared}</p>`;
+                         <div style="margin-top:8px;display:flex;gap:16px;flex-wrap:wrap">
+                            <span class="badge badge-blue">R² = ${result.r_squared}</span>
+                            <span class="badge badge-green">Slope = ${Tables.formatValue(result.slope, true)}/yr</span>
+                         </div>`;
                     Charts.projectionChart('proj-chart', `${metric} Projection`,
                         result.historical_labels.map(l => l.substring(0, 4)),
-                        result.fitted.map((_, i) => result.historical_labels[i] ? null : null),
+                        null,
                         result.fitted,
                         result.projections
                     );
@@ -576,6 +642,28 @@ const App = {
             }
             this.hideLoading();
         };
+    },
+
+    async _saveValuation(ticker) {
+        if (!this._modelResults || Object.keys(this._modelResults).length === 0) {
+            this.toast('Run a model first before saving', 'error');
+            return;
+        }
+        try {
+            await this.api('/api/valuations', {
+                method: 'POST',
+                body: {
+                    ticker,
+                    model_type: 'dcf',
+                    assumptions: this._modelResults.dcf ? {
+                        growth_rate: Forms.readValues('dcf-form').growth_rate,
+                        wacc: Forms.readValues('dcf-form').wacc,
+                    } : {},
+                    results: this._modelResults,
+                },
+            });
+            this.toast('Valuation saved!', 'success');
+        } catch (e) { this.toast(e.message, 'error'); }
     },
 
     // --- Notes ---

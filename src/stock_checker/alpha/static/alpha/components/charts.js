@@ -162,24 +162,30 @@ const Charts = {
      * Render projection chart with confidence bands
      */
     projectionChart(containerId, title, histLabels, histValues, fitted, projections) {
-        const traces = [
-            {
+        const traces = [];
+
+        // Historical data points (if provided)
+        if (histValues && histValues.some(v => v != null)) {
+            traces.push({
                 x: histLabels,
                 y: histValues,
                 type: 'scatter',
                 mode: 'markers',
                 name: 'Historical',
                 marker: { color: '#2196F3', size: 8 },
-            },
-            {
-                x: histLabels,
-                y: fitted,
-                type: 'scatter',
-                mode: 'lines',
-                name: 'Fit',
-                line: { color: '#FF9800', dash: 'dash', width: 1.5 },
-            },
-        ];
+            });
+        }
+
+        // Fitted line
+        traces.push({
+            x: histLabels,
+            y: fitted,
+            type: 'scatter',
+            mode: 'lines+markers',
+            name: 'Trend Line',
+            line: { color: '#FF9800', dash: 'dash', width: 1.5 },
+            marker: { color: '#FF9800', size: 6 },
+        });
 
         if (projections && projections.length > 0) {
             const projLabels = projections.map((_, i) => `P+${i + 1}`);

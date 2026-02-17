@@ -263,7 +263,19 @@ const App = {
     },
 
     // --- Compare ---
+    _lastCompareResult: null,
+
     async renderCompare() {
+        const presets = {
+            'IDX Banks': 'BBCA.JK, BBRI.JK, BMRI.JK, BBNI.JK',
+            'IDX Telco': 'TLKM.JK, ISAT.JK, EXCL.JK',
+            'IDX Consumer': 'UNVR.JK, ICBP.JK, INDF.JK, MYOR.JK',
+            'IDX Mining': 'ADRO.JK, PTBA.JK, ANTM.JK, INCO.JK',
+        };
+        const presetButtons = Object.entries(presets).map(([name, tickers]) =>
+            `<span class="ticker-chip" onclick="document.getElementById('compare-tickers').value='${tickers}'">${name}</span>`
+        ).join('');
+
         this.render(`
             <div class="section-header"><h2>Compare Tickers</h2></div>
             <div class="card">
@@ -271,68 +283,130 @@ const App = {
                     <label>Tickers (comma-separated, max 8)</label>
                     <input type="text" id="compare-tickers" placeholder="BBCA.JK, BBRI.JK, BMRI.JK" />
                 </div>
+                <div style="margin-bottom:12px">
+                    <span style="color:var(--text-muted);font-size:0.8em">Quick presets:</span>
+                    <div class="ticker-chips">${presetButtons}</div>
+                </div>
+                <div class="form-group">
+                    <label>Categories</label>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap">
+                        <label style="font-size:0.85em;cursor:pointer"><input type="checkbox" class="cat-check" value="valuation" checked> Valuation</label>
+                        <label style="font-size:0.85em;cursor:pointer"><input type="checkbox" class="cat-check" value="profitability" checked> Profitability</label>
+                        <label style="font-size:0.85em;cursor:pointer"><input type="checkbox" class="cat-check" value="risk" checked> Risk</label>
+                        <label style="font-size:0.85em;cursor:pointer"><input type="checkbox" class="cat-check" value="market" checked> Market</label>
+                    </div>
+                </div>
                 <button class="btn btn-primary" id="btn-compare">Compare</button>
             </div>
             <div id="compare-results"></div>
         `);
 
-        document.getElementById('btn-compare').onclick = async () => {
-            const input = document.getElementById('compare-tickers').value;
-            const tickers = input.split(',').map(t => t.trim().toUpperCase()).filter(Boolean);
-            if (tickers.length < 2) { this.toast('Enter at least 2 tickers', 'error'); return; }
+        document.getElementById('btn-compare').onclick = () => this._runCompare();
+        document.getElementById('compare-tickers').addEventListener('keydown', e => {
+            if (e.key === 'Enter') this._runCompare();
+        });
+    },
 
-            this.showLoading();
-            try {
-                const result = await this.api('/api/compare', {
-                    method: 'POST',
-                    body: { tickers },
+    async _runCompare() {
+        const input = document.getElementById('compare-tickers').value;
+        const tickers = input.split(',').map(t => t.trim().toUpperCase()).filter(Boolean);
+        if (tickers.length < 2) { this.toast('Enter at least 2 tickers', 'error'); return; }
+
+        const categories = [...document.querySelectorAll('.cat-check:checked')].map(cb => cb.value);
+
+        this.showLoading();
+        try {
+            const result = await this.api('/api/compare', {
+                method: 'POST',
+                body: { tickers, categories },
+            });
+            this._lastCompareResult = result;
+
+            // Summary row: name + sector
+            let summaryHtml = '<div class="card"><table class="data-table"><thead><tr><th></th>';
+            result.tickers.forEach(t => { summaryHtml += `<th>${t}</th>`; });
+            summaryHtml += '</tr></thead><tbody>';
+            summaryHtml += '<tr><td style="font-weight:600">Name</td>';
+            result.tickers.forEach(t => {
+                const d = result.data[t];
+                summaryHtml += `<td>${d?.name || t}</td>`;
+            });
+            summaryHtml += '</tr><tr><td style="font-weight:600">Sector</td>';
+            result.tickers.forEach(t => {
+                const d = result.data[t];
+                summaryHtml += `<td>${d?.sector || 'N/A'}</td>`;
+            });
+            summaryHtml += '</tr></tbody></table></div>';
+
+            // Main comparison table
+            let tableHtml = '<div class="card">' +
+                Tables.comparison(result.metrics, result.tickers, result.data) +
+                '</div>';
+
+            // Bar charts - group by category
+            const chartMetrics = result.metrics.filter(m => m !== 'Market Cap' && m !== 'Current Price');
+            let chartsHtml = '<div class="grid grid-2">';
+            chartMetrics.forEach((m, i) => {
+                chartsHtml += `<div class="card"><div id="cmp-chart-${i}"></div></div>`;
+            });
+            chartsHtml += '</div>';
+
+            // Radar chart
+            const radarMetrics = result.metrics.filter(m =>
+                !['Market Cap', 'Current Price', 'Dividend Yield'].includes(m)
+            );
+            let radarHtml = '<div class="card"><div id="radar-chart"></div></div>';
+
+            // Export buttons
+            const exportHtml = `<div style="margin-top:12px;display:flex;gap:8px">
+                <button class="btn btn-secondary btn-sm" onclick="App._exportCompare('csv')">Export CSV</button>
+                <button class="btn btn-secondary btn-sm" onclick="App._exportCompare('json')">Export JSON</button>
+                <button class="btn btn-secondary btn-sm" onclick="App._exportCompare('pdf')">Export PDF</button>
+            </div>`;
+
+            document.getElementById('compare-results').innerHTML =
+                summaryHtml + tableHtml + chartsHtml + radarHtml + exportHtml;
+
+            // Render bar charts
+            chartMetrics.forEach((m, i) => {
+                const vals = result.tickers.map(t => result.data[t]?.metrics?.[m] ?? null);
+                Charts.comparisonBar(`cmp-chart-${i}`, result.tickers, m, vals);
+            });
+
+            // Render radar
+            const radarData = {};
+            result.tickers.forEach(t => {
+                radarData[t] = {};
+                radarMetrics.forEach(m => {
+                    radarData[t][m] = result.data[t]?.metrics?.[m] ?? 0;
                 });
+            });
+            Charts.radarChart('radar-chart', result.tickers, radarMetrics, radarData);
+        } catch (e) {
+            document.getElementById('compare-results').innerHTML =
+                `<div class="card"><p class="val-negative">Error: ${e.message}</p></div>`;
+        }
+        this.hideLoading();
+    },
 
-                let html = '<div class="card">' +
-                    Tables.comparison(result.metrics, result.tickers, result.data) +
-                    '</div>';
-
-                // Bar charts for key metrics
-                const chartMetrics = ['PER', 'ROE', 'NPM', 'DER'];
-                html += '<div class="grid grid-2">';
-                chartMetrics.forEach((m, i) => {
-                    html += `<div class="card"><div id="cmp-chart-${i}"></div></div>`;
-                });
-                html += '</div>';
-
-                // Radar chart
-                html += '<div class="card"><div id="radar-chart"></div></div>';
-
-                // Export buttons
-                html += `<div style="margin-top:12px;display:flex;gap:8px">
-                    <button class="btn btn-secondary btn-sm" onclick="App.exportData('csv', ${JSON.stringify(result.data).replace(/"/g, '&quot;')})">Export CSV</button>
-                    <button class="btn btn-secondary btn-sm" onclick="App.exportData('json', ${JSON.stringify(result.data).replace(/"/g, '&quot;')})">Export JSON</button>
-                </div>`;
-
-                document.getElementById('compare-results').innerHTML = html;
-
-                // Render charts
-                chartMetrics.forEach((m, i) => {
-                    const vals = result.tickers.map(t => result.data[t]?.metrics?.[m] ?? null);
-                    Charts.comparisonBar(`cmp-chart-${i}`, result.tickers, m, vals);
-                });
-
-                // Radar
-                const radarMetrics = ['PER', 'PBV', 'ROE', 'ROA', 'NPM', 'DER'];
-                const radarData = {};
-                result.tickers.forEach(t => {
-                    radarData[t] = {};
-                    radarMetrics.forEach(m => {
-                        radarData[t][m] = result.data[t]?.metrics?.[m] ?? 0;
-                    });
-                });
-                Charts.radarChart('radar-chart', result.tickers, radarMetrics, radarData);
-            } catch (e) {
-                document.getElementById('compare-results').innerHTML =
-                    `<div class="card"><p class="val-negative">Error: ${e.message}</p></div>`;
-            }
-            this.hideLoading();
-        };
+    async _exportCompare(format) {
+        if (!this._lastCompareResult) { this.toast('No comparison data', 'error'); return; }
+        try {
+            const blob = await this.api(`/api/export/${format}`, {
+                method: 'POST',
+                body: {
+                    data: this._lastCompareResult.data,
+                    title: 'Ticker Comparison Report',
+                    filename: `comparison.${format}`,
+                },
+            });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `comparison.${format}`;
+            a.click();
+            URL.revokeObjectURL(url);
+        } catch (e) { this.toast(`Export failed: ${e.message}`, 'error'); }
     },
 
     // --- Model ---

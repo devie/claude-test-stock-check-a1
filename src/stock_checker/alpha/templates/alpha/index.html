@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stock Review Intelligence - Alpha</title>
+    <link rel="stylesheet" href="/alpha/static/alpha/styles.css">
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+</head>
+<body>
+    <nav id="main-nav">
+        <div class="nav-brand">
+            <a href="#dashboard">Stock Alpha</a>
+        </div>
+        <div class="nav-links">
+            <a href="#dashboard" class="nav-link active" data-page="dashboard">Dashboard</a>
+            <a href="#compare" class="nav-link" data-page="compare">Compare</a>
+            <a href="#notes" class="nav-link" data-page="notes">Notes</a>
+            <a href="#watchlists" class="nav-link" data-page="watchlists">Watchlists</a>
+        </div>
+        <div class="nav-search">
+            <input type="text" id="global-ticker" placeholder="Ticker (e.g. BBCA.JK)" />
+            <button id="btn-go-detail" class="btn btn-primary btn-sm">Analyze</button>
+        </div>
+    </nav>
+
+    <main id="app">
+        <div id="loading" class="loading hidden">
+            <div class="spinner"></div>
+            <p>Loading...</p>
+        </div>
+        <div id="page-content"></div>
+    </main>
+
+    <div id="toast-container"></div>
+
+    <script src="/alpha/static/alpha/components/router.js"></script>
+    <script src="/alpha/static/alpha/components/charts.js"></script>
+    <script src="/alpha/static/alpha/components/tables.js"></script>
+    <script src="/alpha/static/alpha/components/forms.js"></script>
+    <script src="/alpha/static/alpha/app.js"></script>
+</body>
+</html>

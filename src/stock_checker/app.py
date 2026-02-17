@@ -3,15 +3,17 @@
 import math
 import json
 import traceback
+from pathlib import Path
 import numpy as np
 from flask import Flask, render_template, request, jsonify
 
 from stock_checker.fetcher import fetch_stock
 from stock_checker.indicators import calc_sma, calc_rsi, get_summary, format_number
+from stock_checker.alpha import init_alpha
 
 app = Flask(
     __name__,
-    template_folder="templates",
+    template_folder=str(Path(__file__).parent / "templates"),
 )
 
 
@@ -35,6 +37,9 @@ def _clean_list(series):
     return [_clean(v) for v in series]
 
 VALID_PERIODS = ["1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"]
+
+# Initialize Alpha module
+init_alpha(app)
 
 
 def _build_chart_data(df, ticker):
@@ -244,7 +249,8 @@ def run():
     """Entry point for the web server."""
     print("Starting Stock Checker Web Server...")
     print("Open http://localhost:5000 in your browser")
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    # Explicitly bind to all interfaces including IPv4 localhost
+    app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False)
 
 
 if __name__ == "__main__":

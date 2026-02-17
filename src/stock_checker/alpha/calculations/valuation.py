@@ -1,0 +1,178 @@
+"""Valuation models: DCF, scenario analysis, sensitivity matrix."""
+
+import math
+
+
+def calc_dcf(fcf_base, growth_rate, terminal_growth, wacc, projection_years=5,
+             shares_outstanding=None, net_debt=0):
+    """Discounted Cash Flow valuation.
+
+    Args:
+        fcf_base: Base free cash flow (latest year)
+        growth_rate: Annual FCF growth rate (decimal, e.g. 0.10 for 10%)
+        terminal_growth: Terminal/perpetuity growth rate (decimal)
+        wacc: Weighted average cost of capital (decimal)
+        projection_years: Number of years to project
+        shares_outstanding: For per-share value calculation
+        net_debt: Total debt minus cash (subtracted from enterprise value)
+
+    Returns:
+        dict with projected FCFs, PV, terminal value, enterprise value, equity value
+    """
+    if fcf_base is None or wacc is None or wacc <= terminal_growth:
+        return {"error": "Invalid inputs: check FCF, WACC, and terminal growth rate"}
+
+    projected_fcf = []
+    pv_fcf = []
+
+    for year in range(1, projection_years + 1):
+        fcf = fcf_base * ((1 + growth_rate) ** year)
+        pv = fcf / ((1 + wacc) ** year)
+        projected_fcf.append(round(fcf, 2))
+        pv_fcf.append(round(pv, 2))
+
+    # Terminal value (Gordon Growth)
+    terminal_fcf = projected_fcf[-1] * (1 + terminal_growth)
+    terminal_value = terminal_fcf / (wacc - terminal_growth)
+    pv_terminal = terminal_value / ((1 + wacc) ** projection_years)
+
+    enterprise_value = sum(pv_fcf) + pv_terminal
+    equity_value = enterprise_value - net_debt
+
+    result = {
+        "projected_fcf": projected_fcf,
+        "pv_fcf": pv_fcf,
+        "sum_pv_fcf": round(sum(pv_fcf), 2),
+        "terminal_value": round(terminal_value, 2),
+        "pv_terminal": round(pv_terminal, 2),
+        "enterprise_value": round(enterprise_value, 2),
+        "equity_value": round(equity_value, 2),
+    }
+
+    if shares_outstanding and shares_outstanding > 0:
+        result["intrinsic_per_share"] = round(equity_value / shares_outstanding, 2)
+
+    return result
+
+
+def calc_scenario(fcf_base, scenarios, wacc, terminal_growth, projection_years=5,
+                  shares_outstanding=None, net_debt=0):
+    """Run DCF for bull/base/bear scenarios.
+
+    Args:
+        fcf_base: Base free cash flow
+        scenarios: dict like {"bull": 0.15, "base": 0.10, "bear": 0.05}
+        wacc, terminal_growth, projection_years, shares_outstanding, net_debt: same as calc_dcf
+
+    Returns:
+        dict of scenario_name -> DCF result
+    """
+    results = {}
+    for name, growth in scenarios.items():
+        results[name] = calc_dcf(
+            fcf_base, growth, terminal_growth, wacc,
+            projection_years, shares_outstanding, net_debt
+        )
+    return results
+
+
+def calc_sensitivity(fcf_base, wacc_range, growth_range, terminal_growth,
+                     projection_years=5, shares_outstanding=None, net_debt=0):
+    """2D sensitivity matrix: WACC vs Growth Rate.
+
+    Args:
+        fcf_base: Base free cash flow
+        wacc_range: list of WACC values (decimal)
+        growth_range: list of growth rate values (decimal)
+        terminal_growth, projection_years, shares_outstanding, net_debt: same as calc_dcf
+
+    Returns:
+        dict with wacc_labels, growth_labels, and matrix (2D list of intrinsic values)
+    """
+    matrix = []
+    for wacc in wacc_range:
+        row = []
+        for growth in growth_range:
+            result = calc_dcf(
+                fcf_base, growth, terminal_growth, wacc,
+                projection_years, shares_outstanding, net_debt
+            )
+            if "error" in result:
+                row.append(None)
+            elif "intrinsic_per_share" in result:
+                row.append(result["intrinsic_per_share"])
+            else:
+                row.append(result["equity_value"])
+        matrix.append(row)
+
+    return {
+        "wacc_labels": [f"{w*100:.1f}%" for w in wacc_range],
+        "growth_labels": [f"{g*100:.1f}%" for g in growth_range],
+        "matrix": matrix,
+    }
+
+
+def calc_linear_projection(values, periods_ahead=4):
+    """Simple linear regression projection with confidence bands.
+
+    Args:
+        values: list of numeric values (historical, oldest first)
+        periods_ahead: number of periods to project
+
+    Returns:
+        dict with historical fit, projections, and confidence interval
+    """
+    n = len(values)
+    if n < 2:
+        return {"error": "Need at least 2 data points"}
+
+    # Filter out None values
+    clean = [(i, v) for i, v in enumerate(values) if v is not None and math.isfinite(v)]
+    if len(clean) < 2:
+        return {"error": "Need at least 2 valid data points"}
+
+    x_vals = [c[0] for c in clean]
+    y_vals = [c[1] for c in clean]
+
+    # Simple linear regression
+    n_pts = len(clean)
+    sum_x = sum(x_vals)
+    sum_y = sum(y_vals)
+    sum_xy = sum(x * y for x, y in zip(x_vals, y_vals))
+    sum_x2 = sum(x * x for x in x_vals)
+
+    denom = n_pts * sum_x2 - sum_x * sum_x
+    if denom == 0:
+        return {"error": "Cannot fit line (zero variance in x)"}
+
+    slope = (n_pts * sum_xy - sum_x * sum_y) / denom
+    intercept = (sum_y - slope * sum_x) / n_pts
+
+    # Residual standard error
+    residuals = [y - (slope * x + intercept) for x, y in zip(x_vals, y_vals)]
+    if n_pts > 2:
+        se = math.sqrt(sum(r * r for r in residuals) / (n_pts - 2))
+    else:
+        se = 0
+
+    # Historical fit
+    fitted = [round(slope * i + intercept, 2) for i in range(n)]
+
+    # Projections
+    projections = []
+    for i in range(n, n + periods_ahead):
+        val = slope * i + intercept
+        projections.append({
+            "period_index": i,
+            "value": round(val, 2),
+            "upper": round(val + 1.96 * se, 2),
+            "lower": round(val - 1.96 * se, 2),
+        })
+
+    return {
+        "slope": round(slope, 4),
+        "intercept": round(intercept, 2),
+        "r_squared": round(1 - sum(r*r for r in residuals) / max(sum((y - sum_y/n_pts)**2 for y in y_vals), 1e-10), 4),
+        "fitted": fitted,
+        "projections": projections,
+    }

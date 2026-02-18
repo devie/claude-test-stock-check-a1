@@ -18,9 +18,9 @@ const App = {
             const err = await resp.json().catch(() => ({ error: resp.statusText }));
             throw new Error(err.error || 'Request failed');
         }
-        // Check if response is file download
-        const ct = resp.headers.get('content-type') || '';
-        if (ct.includes('text/csv') || ct.includes('application/pdf')) {
+        // Check if response is file download (Content-Disposition: attachment)
+        const cd = resp.headers.get('content-disposition') || '';
+        if (cd.includes('attachment')) {
             return resp.blob();
         }
         return resp.json();
@@ -80,6 +80,10 @@ const App = {
     // ====== PAGE RENDERERS ======
 
     // --- Dashboard ---
+    _dashboardIndicators: ['SMA20', 'SMA50'],
+    _dashboardTicker: 'BBCA.JK',
+    _dashboardPeriod: '1y',
+
     async renderDashboard() {
         let watchlistsHtml = '';
         let notesHtml = '';
@@ -115,15 +119,58 @@ const App = {
                 notesHtml = '<div class="empty-state"><p>No notes yet.</p></div>';
             }
         } catch (e) {
-            // DB might not have data yet
             watchlistsHtml = '<div class="empty-state"><p>No watchlists yet.</p></div>';
             notesHtml = '<div class="empty-state"><p>No notes yet.</p></div>';
         }
 
+        const availableIndicators = [
+            { id: 'SMA20', label: 'SMA 20', group: 'Moving Avg' },
+            { id: 'SMA50', label: 'SMA 50', group: 'Moving Avg' },
+            { id: 'SMA200', label: 'SMA 200', group: 'Moving Avg' },
+            { id: 'EMA12', label: 'EMA 12', group: 'Moving Avg' },
+            { id: 'EMA26', label: 'EMA 26', group: 'Moving Avg' },
+            { id: 'BB20', label: 'Bollinger', group: 'Bands' },
+            { id: 'RSI14', label: 'RSI 14', group: 'Oscillator' },
+            { id: 'MACD', label: 'MACD', group: 'Oscillator' },
+        ];
+
+        const indicatorChips = availableIndicators.map(ind => {
+            const active = this._dashboardIndicators.includes(ind.id);
+            return `<label class="indicator-chip ${active ? 'active' : ''}" title="${ind.group}">
+                <input type="checkbox" value="${ind.id}" class="dash-ind-check" ${active ? 'checked' : ''} style="display:none">
+                ${ind.label}
+            </label>`;
+        }).join('');
+
+        const periodOptions = [
+            { v: '1mo', l: '1M' }, { v: '3mo', l: '3M' }, { v: '6mo', l: '6M' },
+            { v: '1y', l: '1Y' }, { v: '2y', l: '2Y' }, { v: '5y', l: '5Y' },
+        ].map(p => `<button class="btn btn-sm ${p.v === this._dashboardPeriod ? 'btn-primary' : 'btn-secondary'} dash-period-btn" data-period="${p.v}">${p.l}</button>`).join('');
+
         this.render(`
-            <div class="section-header">
-                <h2>Dashboard</h2>
+            <div class="section-header"><h2>Dashboard</h2></div>
+
+            <div class="card">
+                <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+                    <div style="display:flex;align-items:center;gap:8px">
+                        <input type="text" id="dash-ticker" value="${this._dashboardTicker}" placeholder="BBCA.JK"
+                            style="width:120px;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);padding:6px 10px;border-radius:var(--radius)" />
+                        <button class="btn btn-primary btn-sm" id="btn-dash-load">Load Chart</button>
+                    </div>
+                    <div style="display:flex;gap:4px">${periodOptions}</div>
+                </div>
+                <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;align-items:center">
+                    <span style="color:var(--text-muted);font-size:0.8em">Indicators:</span>
+                    ${indicatorChips}
+                    <div style="display:flex;align-items:center;gap:4px;margin-left:8px">
+                        <input type="text" id="dash-custom-ind" placeholder="e.g. SMA100, EMA50"
+                            style="width:120px;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);padding:4px 8px;border-radius:var(--radius);font-size:0.8em" />
+                        <button class="btn btn-sm btn-secondary" id="btn-add-ind">Add</button>
+                    </div>
+                </div>
+                <div id="dash-price-chart"><div class="skeleton skeleton-chart"></div></div>
             </div>
+
             <div class="grid grid-2">
                 <div>
                     <h3 style="margin-bottom:12px">Watchlists</h3>
@@ -138,10 +185,87 @@ const App = {
                 <h3 style="margin-bottom:12px">Quick Access</h3>
                 <div class="ticker-chips">
                     ${['BBCA.JK','BBRI.JK','BMRI.JK','TLKM.JK','ASII.JK','UNVR.JK','ICBP.JK','BBNI.JK']
-                        .map(t => `<span class="ticker-chip" onclick="Router.navigate('#detail/${t}')">${t}</span>`).join('')}
+                        .map(t => `<span class="ticker-chip" onclick="App._dashboardTicker='${t}';document.getElementById('dash-ticker').value='${t}';App._loadDashChart()">${t}</span>`).join('')}
                 </div>
             </div>
         `);
+
+        // Event: load chart
+        document.getElementById('btn-dash-load').onclick = () => this._loadDashChart();
+        document.getElementById('dash-ticker').addEventListener('keydown', e => {
+            if (e.key === 'Enter') this._loadDashChart();
+        });
+
+        // Event: period buttons
+        document.querySelectorAll('.dash-period-btn').forEach(btn => {
+            btn.onclick = () => {
+                this._dashboardPeriod = btn.dataset.period;
+                document.querySelectorAll('.dash-period-btn').forEach(b =>
+                    b.className = `btn btn-sm ${b.dataset.period === this._dashboardPeriod ? 'btn-primary' : 'btn-secondary'} dash-period-btn`
+                );
+                this._loadDashChart();
+            };
+        });
+
+        // Event: indicator checkboxes
+        document.querySelectorAll('.dash-ind-check').forEach(cb => {
+            cb.onchange = () => {
+                const label = cb.parentElement;
+                if (cb.checked) {
+                    this._dashboardIndicators.push(cb.value);
+                    label.classList.add('active');
+                } else {
+                    this._dashboardIndicators = this._dashboardIndicators.filter(i => i !== cb.value);
+                    label.classList.remove('active');
+                }
+                this._loadDashChart();
+            };
+        });
+
+        // Event: add custom indicator
+        document.getElementById('btn-add-ind').onclick = () => {
+            const input = document.getElementById('dash-custom-ind');
+            const val = input.value.trim().toUpperCase();
+            if (val && !this._dashboardIndicators.includes(val)) {
+                this._dashboardIndicators.push(val);
+                input.value = '';
+                this._loadDashChart();
+                // Re-render to show updated chips
+                this.renderDashboard();
+            }
+        };
+
+        // Auto-load chart
+        this._loadDashChart();
+    },
+
+    async _loadDashChart() {
+        const ticker = (document.getElementById('dash-ticker')?.value || this._dashboardTicker).trim().toUpperCase();
+        this._dashboardTicker = ticker;
+        if (!ticker) return;
+
+        const chartDiv = document.getElementById('dash-price-chart');
+        if (!chartDiv) return;
+        chartDiv.innerHTML = '<div class="skeleton skeleton-chart"></div>';
+
+        try {
+            const data = await this.api('/api/price-history', {
+                method: 'POST',
+                body: {
+                    ticker,
+                    period: this._dashboardPeriod,
+                    indicators: this._dashboardIndicators,
+                },
+            });
+            if (data.error) {
+                chartDiv.innerHTML = `<p class="val-negative">${data.error}</p>`;
+                return;
+            }
+            chartDiv.innerHTML = '<div id="dash-chart-container"></div>';
+            Charts.priceChart('dash-chart-container', data, data.indicators || {});
+        } catch (e) {
+            chartDiv.innerHTML = `<p class="val-negative">Error: ${e.message}</p>`;
+        }
     },
 
     // --- Detail ---
@@ -260,7 +384,7 @@ const App = {
                         <span class="badge badge-blue">${fin.sector}</span>
                         <span class="badge badge-purple">${fin.industry}</span>
                         <button class="btn btn-sm btn-primary" onclick="Router.navigate('#model/${ticker}')">DCF Model</button>
-                        <button class="btn btn-sm btn-secondary" onclick="App.saveSnapshot('${ticker}', ${JSON.stringify(fin.ratios).replace(/"/g, '&quot;')})">Save Snapshot</button>
+                        <button class="btn btn-sm btn-secondary" id="btn-save-snapshot">Save Snapshot</button>
                     </div>
                 </div>
                 ${priceSummaryHtml}
@@ -270,6 +394,10 @@ const App = {
                 ${trendChartsHtml}
                 ${stmtTabs}
             `);
+
+            // Save snapshot button
+            document.getElementById('btn-save-snapshot').onclick = () =>
+                this.saveSnapshot(ticker, fin.ratios);
 
             // Render trend charts after DOM is ready
             trendMetrics.forEach((m, i) => {

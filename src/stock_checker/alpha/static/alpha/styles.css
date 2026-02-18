@@ -231,6 +231,26 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
 }
 .ticker-chip:hover { border-color: var(--accent); color: var(--accent); }
 
+/* Indicator chips */
+.indicator-chip {
+    display: inline-block;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    padding: 3px 10px;
+    border-radius: 16px;
+    font-size: 0.8em;
+    cursor: pointer;
+    transition: all 0.2s;
+    color: var(--text-secondary);
+    user-select: none;
+}
+.indicator-chip:hover { border-color: var(--accent); color: var(--text-primary); }
+.indicator-chip.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+}
+
 /* Section headers */
 .section-header {
     display: flex;

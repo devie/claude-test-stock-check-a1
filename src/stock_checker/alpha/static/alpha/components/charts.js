@@ -27,7 +27,7 @@ const Charts = {
             y: values,
             type: 'bar',
             marker: { color: colors.slice(0, tickers.length) },
-            text: values.map(v => v != null ? v.toFixed(2) : 'N/A'),
+            text: values.map(v => v != null && typeof v === 'number' ? v.toFixed(2) : 'N/A'),
             textposition: 'auto',
         };
         const layout = {
@@ -67,9 +67,10 @@ const Charts = {
             name: ticker,
             line: { color: colors[i % colors.length] },
             opacity: 0.6,
-            hovertemplate: metrics.map(m =>
-                `${m}: ${dataByTicker[ticker]?.[m] != null ? dataByTicker[ticker][m].toFixed(2) : 'N/A'}`
-            ).join('<br>') + '<extra>%{fullData.name}</extra>',
+            hovertemplate: metrics.map(m => {
+                const v = dataByTicker[ticker]?.[m];
+                return `${m}: ${v != null && typeof v === 'number' ? v.toFixed(2) : 'N/A'}`;
+            }).join('<br>') + '<extra>%{fullData.name}</extra>',
         }));
 
         const layout = {
@@ -156,6 +157,202 @@ const Charts = {
             yaxis: { ...this.darkLayout.yaxis, title: 'WACC' },
         };
         Plotly.newPlot(containerId, [trace], layout, this.config);
+    },
+
+    /**
+     * Render a candlestick/price chart with indicators
+     */
+    priceChart(containerId, data, indicators = {}) {
+        const traces = [];
+
+        // Candlestick trace
+        traces.push({
+            x: data.dates,
+            open: data.open,
+            high: data.high,
+            low: data.low,
+            close: data.close,
+            type: 'candlestick',
+            name: data.ticker,
+            increasing: { line: { color: '#26a69a' } },
+            decreasing: { line: { color: '#ef5350' } },
+            xaxis: 'x',
+            yaxis: 'y',
+        });
+
+        // Overlay indicators (SMA, EMA, BB) on price chart
+        const overlayColors = {
+            'SMA20': '#FF9800', 'SMA50': '#2196F3', 'SMA200': '#9C27B0',
+            'EMA12': '#00BCD4', 'EMA26': '#E91E63', 'EMA50': '#8BC34A',
+            'BB_Upper': '#666', 'BB_Middle': '#999', 'BB_Lower': '#666',
+        };
+        const separateIndicators = {}; // RSI, MACD go on separate subplots
+
+        for (const [name, values] of Object.entries(indicators)) {
+            if (name.startsWith('RSI') || name.startsWith('MACD')) {
+                separateIndicators[name] = values;
+                continue;
+            }
+            traces.push({
+                x: data.dates,
+                y: values,
+                type: 'scatter',
+                mode: 'lines',
+                name: name,
+                line: {
+                    color: overlayColors[name] || '#aaa',
+                    width: name.startsWith('BB_') ? 1 : 1.5,
+                    dash: name === 'BB_Upper' || name === 'BB_Lower' ? 'dot' : 'solid',
+                },
+                yaxis: 'y',
+                connectgaps: false,
+            });
+        }
+
+        // Bollinger fill
+        if (indicators['BB_Upper'] && indicators['BB_Lower']) {
+            traces.push({
+                x: [...data.dates, ...data.dates.slice().reverse()],
+                y: [...indicators['BB_Upper'], ...indicators['BB_Lower'].slice().reverse()],
+                fill: 'toself',
+                fillcolor: 'rgba(150,150,150,0.1)',
+                line: { color: 'transparent' },
+                name: 'BB Band',
+                showlegend: false,
+                yaxis: 'y',
+            });
+        }
+
+        // Volume bars
+        const volColors = data.close.map((c, i) =>
+            i > 0 && c >= data.close[i - 1] ? 'rgba(38,166,154,0.4)' : 'rgba(239,83,80,0.4)'
+        );
+        traces.push({
+            x: data.dates,
+            y: data.volume,
+            type: 'bar',
+            name: 'Volume',
+            marker: { color: volColors },
+            yaxis: 'y2',
+            showlegend: false,
+        });
+
+        // Determine subplot layout
+        const hasRSI = Object.keys(separateIndicators).some(k => k.startsWith('RSI'));
+        const hasMACD = Object.keys(separateIndicators).some(k => k.startsWith('MACD'));
+
+        let totalHeight = 550;
+        let yDomains = {};
+
+        if (hasRSI && hasMACD) {
+            yDomains = { price: [0.38, 1], vol: [0.38, 1], rsi: [0.20, 0.35], macd: [0, 0.17] };
+            totalHeight = 700;
+        } else if (hasRSI) {
+            yDomains = { price: [0.25, 1], vol: [0.25, 1], rsi: [0, 0.22] };
+            totalHeight = 620;
+        } else if (hasMACD) {
+            yDomains = { price: [0.25, 1], vol: [0.25, 1], macd: [0, 0.22] };
+            totalHeight = 620;
+        } else {
+            yDomains = { price: [0.15, 1], vol: [0.15, 1] };
+        }
+
+        // RSI subplot
+        if (hasRSI) {
+            for (const [name, values] of Object.entries(separateIndicators)) {
+                if (!name.startsWith('RSI')) continue;
+                traces.push({
+                    x: data.dates, y: values, type: 'scatter', mode: 'lines',
+                    name: name, line: { color: '#FF9800', width: 1.5 },
+                    yaxis: 'y3', connectgaps: false,
+                });
+            }
+            // RSI reference lines
+            traces.push({
+                x: [data.dates[0], data.dates[data.dates.length - 1]], y: [70, 70],
+                type: 'scatter', mode: 'lines', line: { color: '#ef5350', width: 0.5, dash: 'dot' },
+                yaxis: 'y3', showlegend: false,
+            });
+            traces.push({
+                x: [data.dates[0], data.dates[data.dates.length - 1]], y: [30, 30],
+                type: 'scatter', mode: 'lines', line: { color: '#26a69a', width: 0.5, dash: 'dot' },
+                yaxis: 'y3', showlegend: false,
+            });
+        }
+
+        // MACD subplot
+        if (hasMACD) {
+            const yAxisMACD = hasRSI ? 'y4' : 'y3';
+            if (separateIndicators['MACD']) {
+                traces.push({
+                    x: data.dates, y: separateIndicators['MACD'], type: 'scatter', mode: 'lines',
+                    name: 'MACD', line: { color: '#2196F3', width: 1.5 },
+                    yaxis: yAxisMACD, connectgaps: false,
+                });
+            }
+            if (separateIndicators['MACD_Signal']) {
+                traces.push({
+                    x: data.dates, y: separateIndicators['MACD_Signal'], type: 'scatter', mode: 'lines',
+                    name: 'Signal', line: { color: '#FF9800', width: 1.5 },
+                    yaxis: yAxisMACD, connectgaps: false,
+                });
+            }
+            if (separateIndicators['MACD_Hist']) {
+                const histColors = separateIndicators['MACD_Hist'].map(v =>
+                    v != null && v >= 0 ? 'rgba(38,166,154,0.6)' : 'rgba(239,83,80,0.6)'
+                );
+                traces.push({
+                    x: data.dates, y: separateIndicators['MACD_Hist'], type: 'bar',
+                    name: 'Histogram', marker: { color: histColors },
+                    yaxis: yAxisMACD, showlegend: false,
+                });
+            }
+        }
+
+        const layout = {
+            ...this.darkLayout,
+            height: totalHeight,
+            title: { text: `${data.ticker} - ${data.period}`, font: { size: 14 } },
+            xaxis: {
+                gridcolor: '#2a2a3e',
+                rangeslider: { visible: false },
+                type: 'date',
+            },
+            yaxis: {
+                domain: yDomains.price,
+                gridcolor: '#2a2a3e',
+                title: 'Price',
+            },
+            yaxis2: {
+                domain: yDomains.vol,
+                overlaying: 'y',
+                side: 'right',
+                showgrid: false,
+                showticklabels: false,
+                range: [0, Math.max(...data.volume.filter(v => v != null)) * 4],
+            },
+            legend: { orientation: 'h', y: -0.05, font: { size: 10 } },
+            margin: { l: 60, r: 30, t: 40, b: 30 },
+        };
+
+        if (hasRSI) {
+            layout.yaxis3 = {
+                domain: yDomains.rsi,
+                gridcolor: '#2a2a3e',
+                title: 'RSI',
+                range: [0, 100],
+            };
+        }
+        if (hasMACD) {
+            const macdAxisKey = hasRSI ? 'yaxis4' : 'yaxis3';
+            layout[macdAxisKey] = {
+                domain: yDomains.macd || yDomains.macd || [0, 0.22],
+                gridcolor: '#2a2a3e',
+                title: 'MACD',
+            };
+        }
+
+        Plotly.newPlot(containerId, traces, layout, this.config);
     },
 
     /**

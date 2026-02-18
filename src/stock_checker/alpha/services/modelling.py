@@ -1,6 +1,6 @@
 """Modelling service: DCF, scenarios, sensitivity, projections."""
 
-from stock_checker.alpha.services.data_fetcher import get_info, get_cashflow
+from stock_checker.alpha.services.data_fetcher import get_info, get_cashflow, get_balance_sheet
 from stock_checker.alpha.calculations.valuation import (
     calc_dcf, calc_scenario, calc_sensitivity, calc_linear_projection
 )
@@ -8,8 +8,9 @@ from stock_checker.alpha.services.trends import _safe, _extract_row
 
 
 def _get_fcf_base(symbol):
-    """Extract latest FCF and shares outstanding."""
+    """Extract latest FCF, shares outstanding, and net debt from statements."""
     cashflow = get_cashflow(symbol)
+    balance = get_balance_sheet(symbol)
     info = get_info(symbol)
 
     fcf = None
@@ -17,10 +18,26 @@ def _get_fcf_base(symbol):
         fcf = _safe(cashflow.loc["Free Cash Flow"].iloc[0])
 
     shares = info.get("sharesOutstanding")
-    total_debt = info.get("totalDebt", 0) or 0
-    cash = info.get("totalCash", 0) or 0
-    net_debt = total_debt - cash
 
+    # Get debt and cash from balance sheet (info dict is often empty due to 401)
+    total_debt = 0
+    cash = 0
+    if balance is not None and not balance.empty:
+        latest_bs = balance.iloc[:, 0]
+        td = _safe(latest_bs.get("Total Debt"))
+        if td is not None:
+            total_debt = td
+        c = _safe(latest_bs.get("Cash And Cash Equivalents"))
+        if c is not None:
+            cash = c
+
+    # Fallback to info dict if balance sheet didn't have data
+    if total_debt == 0:
+        total_debt = info.get("totalDebt", 0) or 0
+    if cash == 0:
+        cash = info.get("totalCash", 0) or 0
+
+    net_debt = total_debt - cash
     return fcf, shares, net_debt
 
 

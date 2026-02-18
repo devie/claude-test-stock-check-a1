@@ -80,6 +80,16 @@ const App = {
     // ====== PAGE RENDERERS ======
 
     // --- Dashboard ---
+    _marketIndices: [
+        { symbol: '^JKSE', label: 'IHSG' },
+        { symbol: '^JKLQ45', label: 'LQ45' },
+        { symbol: '^GSPC', label: 'S&P 500' },
+        { symbol: '^IXIC', label: 'NASDAQ' },
+        { symbol: '^N225', label: 'NIKKEI' },
+        { symbol: '^HSI', label: 'HANG SENG' },
+        { symbol: '^FTSE', label: 'FTSE 100' },
+        { symbol: '^GDAXI', label: 'DAX' },
+    ],
     _dashboardIndicators: ['SMA20', 'SMA50'],
     _dashboardTicker: 'BBCA.JK',
     _dashboardPeriod: '1y',
@@ -147,8 +157,15 @@ const App = {
             { v: '1y', l: '1Y' }, { v: '2y', l: '2Y' }, { v: '5y', l: '5Y' },
         ].map(p => `<button class="btn btn-sm ${p.v === this._dashboardPeriod ? 'btn-primary' : 'btn-secondary'} dash-period-btn" data-period="${p.v}">${p.l}</button>`).join('');
 
+        const indexChips = this._marketIndices.map(idx =>
+            `<span class="index-chip" data-symbol="${idx.symbol}">${idx.label}</span>`
+        ).join('');
+
         this.render(`
-            <div class="section-header"><h2>Dashboard</h2></div>
+            <div class="section-header">
+                <h2>Dashboard</h2>
+                <button class="btn btn-sm btn-secondary" id="btn-dash-screenshot">Screenshot</button>
+            </div>
 
             <div class="card">
                 <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
@@ -169,6 +186,11 @@ const App = {
                     </div>
                 </div>
                 <div id="dash-price-chart"><div class="skeleton skeleton-chart"></div></div>
+            </div>
+
+            <div style="margin-bottom:16px">
+                <h3 style="margin-bottom:8px;color:var(--text-secondary)">Market Indices</h3>
+                <div class="ticker-chips">${indexChips}</div>
             </div>
 
             <div class="grid grid-2">
@@ -235,6 +257,19 @@ const App = {
             }
         };
 
+        // Event: index chips
+        document.querySelectorAll('.index-chip').forEach(chip => {
+            chip.onclick = () => {
+                const symbol = chip.dataset.symbol;
+                this._dashboardTicker = symbol;
+                document.getElementById('dash-ticker').value = symbol;
+                this._loadDashChart();
+            };
+        });
+
+        // Event: screenshot
+        document.getElementById('btn-dash-screenshot').onclick = () => this.screenshotToClipboard();
+
         // Auto-load chart
         this._loadDashChart();
     },
@@ -268,7 +303,127 @@ const App = {
         }
     },
 
+    _computeRecommendations(fin, trends) {
+        const ps = fin.price_summary || {};
+        const ratios = fin.ratios || {};
+        const result = { short: null, medium: null, long: null };
+
+        // --- Short-term (1-3 months): price position in 52-week range ---
+        const cur = ps.current_price;
+        const hi52 = ps['52w_high'];
+        const lo52 = ps['52w_low'];
+        let shortScore = 0;
+        const shortReasons = [];
+        if (cur != null && hi52 != null && lo52 != null && hi52 !== lo52) {
+            const pctInRange = (cur - lo52) / (hi52 - lo52);
+            if (pctInRange < 0.3) { shortScore += 1; shortReasons.push(`Price near 52W low (${(pctInRange * 100).toFixed(0)}% of range)`); }
+            else if (pctInRange > 0.8) { shortScore -= 1; shortReasons.push(`Price near 52W high (${(pctInRange * 100).toFixed(0)}% of range)`); }
+            else { shortReasons.push(`Price at ${(pctInRange * 100).toFixed(0)}% of 52W range`); }
+        }
+        result.short = { score: shortScore, reasons: shortReasons };
+
+        // --- Medium-term (3-12 months): PER valuation + Net Income CAGR ---
+        let medScore = 0;
+        const medReasons = [];
+        const per = ratios['PER'];
+        if (per != null) {
+            if (per > 0 && per < 10) { medScore += 1; medReasons.push(`Low PER (${per.toFixed(1)}x) — potentially undervalued`); }
+            else if (per > 30) { medScore -= 1; medReasons.push(`High PER (${per.toFixed(1)}x) — expensive valuation`); }
+            else { medReasons.push(`PER ${per.toFixed(1)}x — moderate valuation`); }
+        }
+        if (trends?.annual?.['Net Income']?.cagr != null) {
+            const cagr = trends.annual['Net Income'].cagr;
+            if (cagr > 10) { medScore += 1; medReasons.push(`Net Income CAGR +${cagr}% — strong earnings growth`); }
+            else if (cagr < -5) { medScore -= 1; medReasons.push(`Net Income CAGR ${cagr}% — declining earnings`); }
+            else { medReasons.push(`Net Income CAGR ${cagr > 0 ? '+' : ''}${cagr}%`); }
+        }
+        result.medium = { score: medScore, reasons: medReasons };
+
+        // --- Long-term (1-3 years): ROE + DER + Revenue CAGR ---
+        let longScore = 0;
+        const longReasons = [];
+        const roe = ratios['ROE'];
+        if (roe != null) {
+            if (roe > 15) { longScore += 1; longReasons.push(`Strong ROE (${roe.toFixed(1)}%) — efficient capital use`); }
+            else if (roe < 5) { longScore -= 1; longReasons.push(`Weak ROE (${roe.toFixed(1)}%)`); }
+            else { longReasons.push(`ROE ${roe.toFixed(1)}%`); }
+        }
+        const der = ratios['DER'];
+        if (der != null) {
+            if (der < 0.5) { longScore += 1; longReasons.push(`Low DER (${der.toFixed(2)}x) — conservative leverage`); }
+            else if (der > 2) { longScore -= 1; longReasons.push(`High DER (${der.toFixed(2)}x) — high leverage risk`); }
+            else { longReasons.push(`DER ${der.toFixed(2)}x`); }
+        }
+        if (trends?.annual?.['Total Revenue']?.cagr != null) {
+            const cagr = trends.annual['Total Revenue'].cagr;
+            if (cagr > 10) { longScore += 1; longReasons.push(`Revenue CAGR +${cagr}% — strong top-line growth`); }
+            else if (cagr < 0) { longScore -= 1; longReasons.push(`Revenue CAGR ${cagr}% — shrinking revenue`); }
+            else { longReasons.push(`Revenue CAGR +${cagr}%`); }
+        }
+        result.long = { score: longScore, reasons: longReasons };
+
+        return result;
+    },
+
+    _recLabel(score) {
+        if (score >= 1) return { text: 'BUY', cls: 'badge-green' };
+        if (score <= -1) return { text: 'SELL', cls: 'badge-red' };
+        return { text: 'HOLD', cls: 'badge-orange' };
+    },
+
+    _renderRecommendationBox(recs) {
+        const terms = [
+            { key: 'short', label: 'Short-term', sub: '1-3 months' },
+            { key: 'medium', label: 'Medium-term', sub: '3-12 months' },
+            { key: 'long', label: 'Long-term', sub: '1-3 years' },
+        ];
+        const cols = terms.map(t => {
+            const r = recs[t.key];
+            if (!r || r.reasons.length === 0) return `<div class="rec-col"><div class="rec-col-header">${t.label}<br><span style="font-size:0.75em;color:var(--text-muted)">${t.sub}</span></div><p style="color:var(--text-muted);font-size:0.85em">Insufficient data</p></div>`;
+            const badge = this._recLabel(r.score);
+            return `<div class="rec-col">
+                <div class="rec-col-header">${t.label}<br><span style="font-size:0.75em;color:var(--text-muted)">${t.sub}</span></div>
+                <div style="margin:8px 0"><span class="badge ${badge.cls}" style="font-size:1em;padding:4px 14px">${badge.text}</span></div>
+                <ul style="list-style:none;padding:0;margin:0">${r.reasons.map(reason => `<li style="color:var(--text-secondary);font-size:0.85em;margin-bottom:4px;padding-left:10px;border-left:2px solid var(--border)">${reason}</li>`).join('')}</ul>
+            </div>`;
+        }).join('');
+        return `<div class="card">
+            <div class="card-title">Recommendation Summary</div>
+            <div class="grid grid-3">${cols}</div>
+            <p style="color:var(--text-muted);font-size:0.75em;margin-top:12px;font-style:italic">Disclaimer: This is an automated analysis based on financial ratios and historical trends. It is not financial advice. Always do your own research before making investment decisions.</p>
+        </div>`;
+    },
+
+    async _loadDetailChart(ticker) {
+        if (!ticker) return;
+        const chartDiv = document.getElementById('detail-price-chart');
+        if (!chartDiv) return;
+        chartDiv.innerHTML = '<div class="skeleton skeleton-chart"></div>';
+
+        try {
+            const data = await this.api('/api/price-history', {
+                method: 'POST',
+                body: {
+                    ticker,
+                    period: this._detailPeriod,
+                    indicators: this._detailIndicators,
+                },
+            });
+            if (data.error) {
+                chartDiv.innerHTML = `<p class="val-negative">${data.error}</p>`;
+                return;
+            }
+            chartDiv.innerHTML = '<div id="detail-chart-container"></div>';
+            Charts.priceChart('detail-chart-container', data, data.indicators || {});
+        } catch (e) {
+            chartDiv.innerHTML = `<p class="val-negative">Error: ${e.message}</p>`;
+        }
+    },
+
     // --- Detail ---
+    _detailIndicators: ['SMA20', 'SMA50'],
+    _detailPeriod: '1y',
+
     async renderDetail(ticker) {
         if (!ticker) {
             this.render('<div class="empty-state"><h3>Enter a ticker to analyze</h3></div>');
@@ -377,6 +532,47 @@ const App = {
                     <div id="stmt-quarterly" class="hidden">${Tables.financialStatement(fin.quarterly_income, 'Income Statement (Quarterly)', ccy)}</div>
                 </div>`;
 
+            // Price chart section
+            const detailIndicators = [
+                { id: 'SMA20', label: 'SMA 20' }, { id: 'SMA50', label: 'SMA 50' },
+                { id: 'SMA200', label: 'SMA 200' }, { id: 'EMA12', label: 'EMA 12' },
+                { id: 'EMA26', label: 'EMA 26' }, { id: 'BB20', label: 'Bollinger' },
+                { id: 'RSI14', label: 'RSI 14' }, { id: 'MACD', label: 'MACD' },
+            ];
+            const detIndChips = detailIndicators.map(ind => {
+                const active = this._detailIndicators.includes(ind.id);
+                return `<label class="indicator-chip ${active ? 'active' : ''}">
+                    <input type="checkbox" value="${ind.id}" class="det-ind-check" ${active ? 'checked' : ''} style="display:none">
+                    ${ind.label}
+                </label>`;
+            }).join('');
+            const detPeriodBtns = [
+                { v: '1mo', l: '1M' }, { v: '3mo', l: '3M' }, { v: '6mo', l: '6M' },
+                { v: '1y', l: '1Y' }, { v: '2y', l: '2Y' }, { v: '5y', l: '5Y' },
+            ].map(p => `<button class="btn btn-sm ${p.v === this._detailPeriod ? 'btn-primary' : 'btn-secondary'} det-period-btn" data-period="${p.v}">${p.l}</button>`).join('');
+
+            // Recommendation box
+            const recs = this._computeRecommendations(fin, trends);
+            const recommendationHtml = this._renderRecommendationBox(recs);
+
+            const priceChartHtml = `
+                <div class="card">
+                    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+                        <div class="card-title" style="margin:0">Price Chart</div>
+                        <div style="display:flex;gap:4px">${detPeriodBtns}</div>
+                    </div>
+                    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;align-items:center">
+                        <span style="color:var(--text-muted);font-size:0.8em">Indicators:</span>
+                        ${detIndChips}
+                        <div style="display:flex;align-items:center;gap:4px;margin-left:8px">
+                            <input type="text" id="det-custom-ind" placeholder="e.g. SMA100"
+                                style="width:100px;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);padding:4px 8px;border-radius:var(--radius);font-size:0.8em" />
+                            <button class="btn btn-sm btn-secondary" id="btn-det-add-ind">+</button>
+                        </div>
+                    </div>
+                    <div id="detail-price-chart"><div class="skeleton skeleton-chart"></div></div>
+                </div>`;
+
             this.render(`
                 <div class="section-header">
                     <h2>${fin.name || ticker} <span style="color:var(--text-muted);font-weight:400">(${fin.ticker})</span></h2>
@@ -384,10 +580,13 @@ const App = {
                         <span class="badge badge-blue">${fin.sector}</span>
                         <span class="badge badge-purple">${fin.industry}</span>
                         <button class="btn btn-sm btn-primary" onclick="Router.navigate('#model/${ticker}')">DCF Model</button>
-                        <button class="btn btn-sm btn-secondary" id="btn-save-snapshot">Save Snapshot</button>
+                        <button class="btn btn-sm btn-secondary" id="btn-save-snapshot">Save Data</button>
+                        <button class="btn btn-sm btn-secondary" id="btn-detail-screenshot">Screenshot</button>
                     </div>
                 </div>
                 ${priceSummaryHtml}
+                ${recommendationHtml}
+                ${priceChartHtml}
                 ${highlightsHtml}
                 ${ratiosHtml}
                 ${anomalyHtml}
@@ -398,6 +597,46 @@ const App = {
             // Save snapshot button
             document.getElementById('btn-save-snapshot').onclick = () =>
                 this.saveSnapshot(ticker, fin.ratios);
+
+            // Screenshot button
+            document.getElementById('btn-detail-screenshot').onclick = () =>
+                this.screenshotToClipboard();
+
+            // Detail price chart events
+            document.querySelectorAll('.det-period-btn').forEach(btn => {
+                btn.onclick = () => {
+                    this._detailPeriod = btn.dataset.period;
+                    document.querySelectorAll('.det-period-btn').forEach(b =>
+                        b.className = `btn btn-sm ${b.dataset.period === this._detailPeriod ? 'btn-primary' : 'btn-secondary'} det-period-btn`
+                    );
+                    this._loadDetailChart(ticker);
+                };
+            });
+            document.querySelectorAll('.det-ind-check').forEach(cb => {
+                cb.onchange = () => {
+                    const label = cb.parentElement;
+                    if (cb.checked) {
+                        this._detailIndicators.push(cb.value);
+                        label.classList.add('active');
+                    } else {
+                        this._detailIndicators = this._detailIndicators.filter(i => i !== cb.value);
+                        label.classList.remove('active');
+                    }
+                    this._loadDetailChart(ticker);
+                };
+            });
+            document.getElementById('btn-det-add-ind').onclick = () => {
+                const input = document.getElementById('det-custom-ind');
+                const val = input.value.trim().toUpperCase();
+                if (val && !this._detailIndicators.includes(val)) {
+                    this._detailIndicators.push(val);
+                    input.value = '';
+                    this._loadDetailChart(ticker);
+                }
+            };
+
+            // Load detail price chart
+            this._loadDetailChart(ticker);
 
             // Render trend charts after DOM is ready
             trendMetrics.forEach((m, i) => {
@@ -1031,6 +1270,41 @@ const App = {
             this.toast('Watchlist deleted', 'success');
             this.renderWatchlists();
         } catch (e) { this.toast(e.message, 'error'); }
+    },
+
+    // --- Screenshot ---
+    async screenshotToClipboard() {
+        const target = document.getElementById('page-content');
+        if (!target) return;
+        this.toast('Capturing screenshot...', 'info');
+        try {
+            const canvas = await html2canvas(target, {
+                backgroundColor: '#0f0f1a',
+                scale: 2,
+                useCORS: true,
+                logging: false,
+            });
+            canvas.toBlob(async (blob) => {
+                if (!blob) { this.toast('Screenshot failed', 'error'); return; }
+                try {
+                    await navigator.clipboard.write([
+                        new ClipboardItem({ 'image/png': blob })
+                    ]);
+                    this.toast('Screenshot copied to clipboard!', 'success');
+                } catch (clipErr) {
+                    // Fallback: download as PNG
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'screenshot.png';
+                    a.click();
+                    URL.revokeObjectURL(url);
+                    this.toast('Clipboard unavailable — downloaded as PNG', 'info');
+                }
+            }, 'image/png');
+        } catch (e) {
+            this.toast(`Screenshot error: ${e.message}`, 'error');
+        }
     },
 
     // --- Export helper ---

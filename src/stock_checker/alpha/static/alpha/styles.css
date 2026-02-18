@@ -231,6 +231,25 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
 }
 .ticker-chip:hover { border-color: var(--accent); color: var(--accent); }
 
+/* Index chips */
+.index-chip {
+    display: inline-block;
+    background: rgba(156,39,176,0.1);
+    border: 1px solid rgba(156,39,176,0.4);
+    padding: 4px 12px;
+    border-radius: 16px;
+    font-size: 0.85em;
+    cursor: pointer;
+    transition: all 0.2s;
+    color: var(--purple);
+    user-select: none;
+}
+.index-chip:hover {
+    background: rgba(156,39,176,0.25);
+    border-color: var(--purple);
+    color: #ce93d8;
+}
+
 /* Indicator chips */
 .indicator-chip {
     display: inline-block;
@@ -249,6 +268,22 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
     background: var(--accent);
     border-color: var(--accent);
     color: #fff;
+}
+
+/* Recommendation box */
+.rec-col {
+    padding: 12px;
+    background: var(--bg-input);
+    border-radius: var(--radius);
+    text-align: center;
+}
+.rec-col-header {
+    font-weight: 600;
+    font-size: 0.95em;
+    margin-bottom: 4px;
+}
+.rec-col ul li {
+    text-align: left;
 }
 
 /* Section headers */

@@ -120,9 +120,11 @@ const Tables = {
             html += `<tr><td>${metric}</td>`;
             for (const t of tickers) {
                 const td = data[t];
-                let val = 'N/A';
-                if (td && td.metrics && td.metrics[metric] != null) {
-                    const v = td.metrics[metric];
+                const rawVal = td?.metrics?.[metric] ?? null;
+                let val = '<span style="color:var(--text-muted)">N/A</span>';
+
+                if (rawVal != null) {
+                    const v = rawVal;
                     if (largeMetrics.includes(metric)) {
                         val = Tables.formatValue(v, true);
                     } else if (metric === 'Current Price') {
@@ -134,7 +136,18 @@ const Tables = {
                     } else {
                         val = Tables.formatValue(v);
                     }
-                } else if (td && td.error) {
+
+                    // Apply signal coloring for known ratio metrics
+                    const signal = Tables._ratioSignal(metric, v);
+                    if (signal) {
+                        const color = Tables._SIGNAL_COLORS[signal];
+                        const bg    = Tables._SIGNAL_BG[signal];
+                        const dot   = `<span style="color:${color};font-size:0.65em;margin-right:4px;vertical-align:middle">●</span>`;
+                        val = `<span style="color:${color};font-weight:600">${val}</span>`;
+                        html += `<td style="background:${bg};border-radius:4px">${dot}${val}</td>`;
+                        continue;
+                    }
+                } else if (td?.error) {
                     val = '<span class="val-negative">Error</span>';
                 }
                 html += `<td>${val}</td>`;

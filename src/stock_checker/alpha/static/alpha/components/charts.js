@@ -456,8 +456,10 @@ const Charts = {
             height: 400,
             xaxis: {
                 gridcolor: this._baseColors.grid,
+                type: 'category',
                 categoryorder: 'array',
                 categoryarray: allLabels,
+                range: [-0.5, allLabels.length - 0.5],
             },
             legend: { orientation: 'h', y: -0.15 },
         }));

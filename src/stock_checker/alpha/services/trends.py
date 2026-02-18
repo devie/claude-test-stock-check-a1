@@ -20,13 +20,32 @@ def _safe(val):
     return val
 
 
+# Some IDX tickers (IFRS direct method) use different field names than the standard ones.
+# Maps canonical metric name -> list of alternative yfinance field names to try.
+METRIC_ALIASES = {
+    "Operating Cash Flow": [
+        "Cash Flowsfromusedin Operating Activities Direct",
+        "Operating Activities",
+    ],
+    "Free Cash Flow": [
+        "Free Cash Flow",  # already canonical, kept for completeness
+    ],
+}
+
+
 def _extract_row(df, row_name):
-    """Extract a row from a financial statement as a sorted series (oldest first)."""
-    if df is None or df.empty or row_name not in df.index:
+    """Extract a row from a financial statement as a sorted series (oldest first).
+
+    Tries the canonical row_name first, then any known aliases.
+    """
+    if df is None or df.empty:
         return None
-    row = df.loc[row_name]
-    # Columns are dates, usually newest first - reverse to oldest first
-    return row.iloc[::-1]
+    # Try primary name
+    candidates = [row_name] + [a for a in METRIC_ALIASES.get(row_name, []) if a != row_name]
+    for name in candidates:
+        if name in df.index:
+            return df.loc[name].iloc[::-1]
+    return None
 
 
 KEY_METRICS = {

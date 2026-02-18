@@ -1040,7 +1040,9 @@ const App = {
                 });
                 this._modelResults.projection = result;
                 if (result.error) {
-                    document.getElementById('projection-results').innerHTML = `<p class="val-negative">${result.error}</p>`;
+                    this.toast(`Data not available: ${result.error}`, 'info');
+                    document.getElementById('projection-results').innerHTML =
+                        `<p style="color:var(--text-muted);font-size:0.9em">⚠️ ${result.error} for this ticker. Try a different metric.</p>`;
                 } else {
                     document.getElementById('projection-results').innerHTML =
                         `<div id="proj-chart"></div>
@@ -1276,6 +1278,10 @@ const App = {
     async screenshotToClipboard() {
         const target = document.getElementById('page-content');
         if (!target) return;
+        if (typeof html2canvas === 'undefined') {
+            this.toast('Screenshot library failed to load. Refresh the page and try again.', 'error');
+            return;
+        }
         this.toast('Capturing screenshot...', 'info');
         try {
             const canvas = await html2canvas(target, {

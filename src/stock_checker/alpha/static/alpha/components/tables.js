@@ -28,13 +28,28 @@ const Tables = {
         }
         html += '</tr></thead><tbody>';
 
+        const largeMetrics = ['Market Cap'];
+        const pctMetrics = ['ROE', 'ROA', 'NPM', 'GPM', 'Dividend Yield'];
+        const ratioMetrics = ['PER', 'PBV', 'EV/EBITDA', 'PEG', 'DER', 'Current Ratio', 'Beta'];
+
         for (const metric of metrics) {
             html += `<tr><td>${metric}</td>`;
             for (const t of tickers) {
                 const td = data[t];
                 let val = 'N/A';
                 if (td && td.metrics && td.metrics[metric] != null) {
-                    val = Tables.formatValue(td.metrics[metric]);
+                    const v = td.metrics[metric];
+                    if (largeMetrics.includes(metric)) {
+                        val = Tables.formatValue(v, true);
+                    } else if (metric === 'Current Price') {
+                        val = Tables.formatPrice(v);
+                    } else if (pctMetrics.includes(metric)) {
+                        val = Tables.formatRatio(v, '%');
+                    } else if (ratioMetrics.includes(metric)) {
+                        val = Tables.formatRatio(v, 'x');
+                    } else {
+                        val = Tables.formatValue(v);
+                    }
                 } else if (td && td.error) {
                     val = '<span class="val-negative">Error</span>';
                 }
@@ -65,7 +80,7 @@ const Tables = {
     /**
      * Render financial statement table (periods as columns)
      */
-    financialStatement(statementData, title) {
+    financialStatement(statementData, title, currency = '') {
         if (!statementData || Object.keys(statementData).length === 0) {
             return `<div class="card-title">${title}</div><p style="color:var(--text-muted)">No data available</p>`;
         }
@@ -106,7 +121,7 @@ const Tables = {
             html += `<td style="${isKey ? 'font-weight:600' : ''}">${item}</td>`;
             for (const p of periods) {
                 const v = values[p];
-                html += `<td>${Tables.formatValue(v, true)}</td>`;
+                html += `<td>${Tables.formatValue(v, true, currency)}</td>`;
             }
             html += '</tr>';
         }
@@ -146,17 +161,65 @@ const Tables = {
     },
 
     /**
-     * Format a value for display
+     * Add thousand separators to a number string
      */
-    formatValue(v, large = false) {
+    addSeparator(numStr) {
+        const parts = numStr.split('.');
+        parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+        return parts.join('.');
+    },
+
+    /**
+     * Format a value for display
+     * @param {*} v - value
+     * @param {boolean} large - use B/T/M/K suffix for large numbers
+     * @param {string} currency - currency prefix (e.g. 'IDR', 'USD')
+     */
+    formatValue(v, large = false, currency = '') {
         if (v == null || v === 'N/A') return '<span style="color:var(--text-muted)">N/A</span>';
         if (typeof v === 'string') return v;
         if (typeof v === 'number') {
-            if (large && Math.abs(v) >= 1e9) return (v / 1e9).toFixed(2) + 'B';
-            if (large && Math.abs(v) >= 1e6) return (v / 1e6).toFixed(2) + 'M';
-            if (large && Math.abs(v) >= 1e3) return (v / 1e3).toFixed(1) + 'K';
-            return v.toFixed(2);
+            const neg = v < 0;
+            const abs = Math.abs(v);
+            let formatted;
+
+            if (large && abs >= 1e12) {
+                formatted = Tables.addSeparator((abs / 1e12).toFixed(2)) + 'T';
+            } else if (large && abs >= 1e9) {
+                formatted = Tables.addSeparator((abs / 1e9).toFixed(2)) + 'B';
+            } else if (large && abs >= 1e6) {
+                formatted = Tables.addSeparator((abs / 1e6).toFixed(2)) + 'M';
+            } else if (large && abs >= 1e3) {
+                formatted = Tables.addSeparator(Math.round(abs).toString());
+            } else if (abs >= 1000) {
+                formatted = Tables.addSeparator(abs.toFixed(2));
+            } else {
+                formatted = abs.toFixed(2);
+            }
+
+            const prefix = currency ? `<span style="color:var(--text-muted);font-size:0.85em">${currency} </span>` : '';
+            const sign = neg ? '-' : '';
+            const colorClass = neg ? ' style="color:var(--red)"' : '';
+            return `<span${colorClass}>${sign}${prefix}${formatted}</span>`;
         }
         return String(v);
+    },
+
+    /**
+     * Format price with currency
+     */
+    formatPrice(v, currency = 'IDR') {
+        if (v == null) return '<span style="color:var(--text-muted)">N/A</span>';
+        return Tables.formatValue(v, false, currency);
+    },
+
+    /**
+     * Format ratio (no currency, 2 decimal, with suffix like % or x)
+     */
+    formatRatio(v, suffix = '') {
+        if (v == null) return '<span style="color:var(--text-muted)">N/A</span>';
+        if (typeof v !== 'number') return String(v);
+        const formatted = Tables.addSeparator(v.toFixed(2));
+        return `${formatted}${suffix}`;
     },
 };

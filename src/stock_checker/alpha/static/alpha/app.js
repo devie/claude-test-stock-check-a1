@@ -161,19 +161,19 @@ const App = {
             const fv = Tables.formatValue;
             const ps = fin.price_summary || {};
             const hl = fin.highlights || {};
+            const ccy = ps.currency || '';
 
             // Price summary card
             const priceSummaryHtml = `
                 <div class="card">
                     <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px">
                         <div>
-                            <span style="font-size:2em;font-weight:700">${fv(ps.current_price)}</span>
-                            <span style="color:var(--text-muted);margin-left:4px">${ps.currency || ''}</span>
+                            <span style="font-size:2em;font-weight:700">${Tables.formatPrice(ps.current_price, ccy)}</span>
                         </div>
                         <div style="display:flex;gap:16px;flex-wrap:wrap">
-                            <div><span style="color:var(--text-muted);font-size:0.8em">Mkt Cap</span><br>${fv(ps.market_cap, true)}</div>
-                            <div><span style="color:var(--text-muted);font-size:0.8em">52W High</span><br>${fv(ps['52w_high'])}</div>
-                            <div><span style="color:var(--text-muted);font-size:0.8em">52W Low</span><br>${fv(ps['52w_low'])}</div>
+                            <div><span style="color:var(--text-muted);font-size:0.8em">Mkt Cap</span><br>${fv(ps.market_cap, true, ccy)}</div>
+                            <div><span style="color:var(--text-muted);font-size:0.8em">52W High</span><br>${Tables.formatPrice(ps['52w_high'], ccy)}</div>
+                            <div><span style="color:var(--text-muted);font-size:0.8em">52W Low</span><br>${Tables.formatPrice(ps['52w_low'], ccy)}</div>
                             <div><span style="color:var(--text-muted);font-size:0.8em">Shares</span><br>${fv(ps.shares_outstanding, true)}</div>
                             <div><span style="color:var(--text-muted);font-size:0.8em">Avg Vol</span><br>${fv(ps.avg_volume, true)}</div>
                         </div>
@@ -187,7 +187,7 @@ const App = {
                     Object.entries(hl).map(([k, v]) => `
                         <div style="padding:8px;background:var(--bg-input);border-radius:var(--radius)">
                             <div style="color:var(--text-muted);font-size:0.8em">${k}</div>
-                            <div style="font-size:1.1em;font-weight:600">${fv(v, true)}</div>
+                            <div style="font-size:1.1em;font-weight:600">${fv(v, true, ccy)}</div>
                         </div>
                     `).join('') + '</div></div>';
             }
@@ -198,10 +198,18 @@ const App = {
                 'Profitability': ['ROE', 'ROA', 'NPM', 'GPM'],
                 'Risk & Leverage': ['Beta', 'DER', 'Current Ratio', 'Dividend Yield'],
             };
+            // Format ratios with appropriate suffixes
+            const ratioSuffix = { 'ROE': '%', 'ROA': '%', 'NPM': '%', 'GPM': '%', 'Dividend Yield': '%' };
+            const ratioSuffixX = { 'PER': 'x', 'PBV': 'x', 'EV/EBITDA': 'x', 'PEG': 'x', 'DER': 'x', 'Current Ratio': 'x' };
             let ratiosHtml = '<div class="grid grid-3">';
             for (const [cat, keys] of Object.entries(ratioCategories)) {
                 const filtered = {};
-                keys.forEach(k => { if (fin.ratios[k] !== undefined) filtered[k] = fin.ratios[k]; });
+                keys.forEach(k => {
+                    if (fin.ratios[k] !== undefined) {
+                        const suffix = ratioSuffix[k] || ratioSuffixX[k] || '';
+                        filtered[k] = Tables.formatRatio(fin.ratios[k], suffix);
+                    }
+                });
                 ratiosHtml += `<div class="card"><div class="card-title">${cat}</div>${Tables.keyValue(filtered)}</div>`;
             }
             ratiosHtml += '</div>';
@@ -239,10 +247,10 @@ const App = {
                         <button class="btn btn-sm btn-secondary" onclick="App._showStmt('cashflow')">Cash Flow</button>
                         <button class="btn btn-sm btn-secondary" onclick="App._showStmt('quarterly')">Quarterly</button>
                     </div>
-                    <div id="stmt-income">${Tables.financialStatement(fin.income_statement, 'Income Statement (Annual)')}</div>
-                    <div id="stmt-balance" class="hidden">${Tables.financialStatement(fin.balance_sheet, 'Balance Sheet')}</div>
-                    <div id="stmt-cashflow" class="hidden">${Tables.financialStatement(fin.cash_flow, 'Cash Flow')}</div>
-                    <div id="stmt-quarterly" class="hidden">${Tables.financialStatement(fin.quarterly_income, 'Income Statement (Quarterly)')}</div>
+                    <div id="stmt-income">${Tables.financialStatement(fin.income_statement, 'Income Statement (Annual)', ccy)}</div>
+                    <div id="stmt-balance" class="hidden">${Tables.financialStatement(fin.balance_sheet, 'Balance Sheet', ccy)}</div>
+                    <div id="stmt-cashflow" class="hidden">${Tables.financialStatement(fin.cash_flow, 'Cash Flow', ccy)}</div>
+                    <div id="stmt-quarterly" class="hidden">${Tables.financialStatement(fin.quarterly_income, 'Income Statement (Quarterly)', ccy)}</div>
                 </div>`;
 
             this.render(`
@@ -543,10 +551,10 @@ const App = {
                         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
                             <div>
                                 <div style="color:var(--text-muted);font-size:0.8em">Intrinsic Value / Share</div>
-                                <div style="font-size:1.8em;font-weight:700">${result.intrinsic_per_share != null ? result.intrinsic_per_share.toFixed(2) : 'N/A'}</div>
+                                <div style="font-size:1.8em;font-weight:700">${result.intrinsic_per_share != null ? Tables.addSeparator(result.intrinsic_per_share.toFixed(2)) : 'N/A'}</div>
                             </div>
                             <div style="text-align:right">
-                                <div style="color:var(--text-muted);font-size:0.8em">Current: ${result.current_price != null ? result.current_price.toFixed(2) : 'N/A'}</div>
+                                <div style="color:var(--text-muted);font-size:0.8em">Current: ${result.current_price != null ? Tables.addSeparator(result.current_price.toFixed(2)) : 'N/A'}</div>
                                 <div>${upside} ${verdict}</div>
                             </div>
                         </div>
@@ -603,12 +611,12 @@ const App = {
                         html += `<tr>
                             <td><span class="badge ${scenarioColors[name] || 'badge-blue'}">${name.charAt(0).toUpperCase() + name.slice(1)}</span></td>
                             <td>${(vals[name] || 0)}%</td>
-                            <td style="font-weight:600">${iv != null ? iv.toFixed(2) : 'N/A'}</td>
+                            <td style="font-weight:600">${iv != null ? Tables.addSeparator(iv.toFixed(2)) : 'N/A'}</td>
                             <td class="${diffClass}">${diff != null ? `${diff > 0 ? '+' : ''}${diff}%` : '-'}</td>
                         </tr>`;
                     }
                     html += '</tbody></table>';
-                    if (cp) html += `<p style="margin-top:8px;color:var(--text-secondary)">Current price: ${cp.toFixed(2)}</p>`;
+                    if (cp) html += `<p style="margin-top:8px;color:var(--text-secondary)">Current price: ${Tables.addSeparator(cp.toFixed(2))}</p>`;
 
                     // Scenario bar chart
                     html += '<div id="scenario-chart" style="margin-top:12px"></div>';

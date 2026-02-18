@@ -688,7 +688,10 @@ const App = {
         ).join('');
 
         this.render(`
-            <div class="section-header"><h2>Compare Tickers</h2></div>
+            <div class="section-header">
+                <h2>Compare Tickers</h2>
+                <button class="btn btn-sm btn-secondary" onclick="App.screenshotToClipboard()">Screenshot</button>
+            </div>
             <div class="card">
                 <div class="form-group">
                     <label>Tickers (comma-separated, max 8)</label>
@@ -775,8 +778,10 @@ const App = {
                 <button class="btn btn-secondary btn-sm" onclick="App._exportCompare('pdf')">Export PDF</button>
             </div>`;
 
+            const narrativeHtml = this._generateCompareSummary(result);
+
             document.getElementById('compare-results').innerHTML =
-                summaryHtml + tableHtml + chartsHtml + radarHtml + exportHtml;
+                narrativeHtml + summaryHtml + tableHtml + chartsHtml + radarHtml + exportHtml;
 
             // Render bar charts + radar (setTimeout ensures DOM is settled)
             setTimeout(() => {
@@ -799,6 +804,99 @@ const App = {
                 `<div class="card"><p class="val-negative">Error: ${e.message}</p></div>`;
         }
         this.hideLoading();
+    },
+
+    _generateCompareSummary(result) {
+        const tickers = result.tickers;
+        const data = result.data;
+
+        // Returns {ticker, value} for best performer on a metric
+        const best = (metric, lowerIsBetter = false) => {
+            let bestTicker = null, bestVal = null;
+            tickers.forEach(t => {
+                const v = data[t]?.metrics?.[metric];
+                if (v == null || !isFinite(v)) return;
+                if (bestVal === null || (lowerIsBetter ? v < bestVal : v > bestVal)) {
+                    bestVal = v; bestTicker = t;
+                }
+            });
+            return { ticker: bestTicker, value: bestVal };
+        };
+
+        const fmt = (v, dec = 1) => v != null ? v.toFixed(dec) : 'N/A';
+        const lines = [];
+
+        // Valuation
+        const cheapPER = best('PER', true);
+        const cheapPBV = best('PBV', true);
+        if (cheapPER.ticker) lines.push(`<b>${cheapPER.ticker}</b> trades at the lowest P/E (${fmt(cheapPER.value)}x) — cheapest on earnings basis.`);
+        if (cheapPBV.ticker) lines.push(`<b>${cheapPBV.ticker}</b> has the lowest P/BV (${fmt(cheapPBV.value, 2)}x) — most attractive on book value.`);
+
+        // Profitability
+        const topROE = best('ROE');
+        const topNPM = best('NPM');
+        const topROA = best('ROA');
+        if (topROE.ticker) lines.push(`<b>${topROE.ticker}</b> leads on ROE (${fmt(topROE.value)}%) — generates the most return from shareholders' equity.`);
+        if (topNPM.ticker) lines.push(`<b>${topNPM.ticker}</b> has the highest net margin (${fmt(topNPM.value)}%) — retains the most profit per revenue dollar.`);
+        if (topROA.ticker && topROA.ticker !== topROE.ticker) lines.push(`<b>${topROA.ticker}</b> leads on ROA (${fmt(topROA.value)}%) — best at converting assets into profit.`);
+
+        // Risk
+        const lowBeta = best('Beta', true);
+        const lowDER  = best('DER', true);
+        if (lowBeta.ticker && Math.abs(lowBeta.value) < 2) lines.push(`<b>${lowBeta.ticker}</b> shows the lowest beta (β ${fmt(lowBeta.value, 2)}) — least correlated with market swings.`);
+        if (lowDER.ticker) lines.push(`<b>${lowDER.ticker}</b> carries the least leverage (DER ${fmt(lowDER.value, 2)}) — most conservative balance sheet.`);
+
+        // Dividend
+        const topDiv = best('Dividend Yield');
+        if (topDiv.ticker && topDiv.value > 0) lines.push(`<b>${topDiv.ticker}</b> offers the highest dividend yield (${fmt(topDiv.value, 2)}%) — best for income investors.`);
+
+        // Key metrics to watch
+        const watchpoints = [];
+        tickers.forEach(t => {
+            const m = data[t]?.metrics;
+            if (!m) return;
+            if (m.PEG != null && isFinite(m.PEG) && m.PEG > 3)
+                watchpoints.push(`${t} PEG ratio is elevated (${fmt(m.PEG)}x) — growth may already be priced into the stock.`);
+            if (m.DER != null && isFinite(m.DER) && m.DER > 1.5)
+                watchpoints.push(`${t} carries high leverage (DER ${fmt(m.DER, 2)}) — monitor debt servicing capacity.`);
+            if (m.ROE != null && isFinite(m.ROE) && m.ROE < 8)
+                watchpoints.push(`${t} ROE is below 8% — equity returns are relatively weak, worth investigating why.`);
+            if (m.NPM != null && isFinite(m.NPM) && m.NPM < 5)
+                watchpoints.push(`${t} net margin below 5% — thin profitability leaves little buffer for cost shocks.`);
+        });
+
+        // Null metric note
+        const allNull = result.metrics.filter(m => tickers.every(t => data[t]?.metrics?.[m] == null));
+        if (allNull.length > 0)
+            watchpoints.push(`Metrics unavailable for all tickers: <i>${allNull.join(', ')}</i> — may be sector-specific (e.g. banks don't report GPM or EV/EBITDA).`);
+
+        // Sector context
+        const sectors = [...new Set(tickers.map(t => data[t]?.sector).filter(Boolean))];
+        const sectorNote = sectors.length === 1
+            ? `All tickers are in the <b>${sectors[0]}</b> sector — ratios are directly comparable.`
+            : `Tickers span <b>${sectors.join(' / ')}</b> — exercise caution when comparing ratios cross-sector, as accounting treatment and capital structure norms differ significantly.`;
+
+        return `
+            <div class="card" style="border-left:3px solid var(--accent);margin-top:0">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+                    <div class="card-title" style="margin:0">Comparison Summary</div>
+                    <span style="font-size:0.75em;color:var(--text-muted)">auto-generated · English</span>
+                </div>
+                <p style="color:var(--text-muted);font-size:0.83em;margin:0 0 12px">${sectorNote}</p>
+                <div style="display:flex;flex-direction:column;gap:7px;font-size:0.87em;color:var(--text-secondary)">
+                    ${lines.map(l => `<div style="display:flex;gap:8px"><span style="color:var(--accent);flex-shrink:0">▸</span><span>${l}</span></div>`).join('')}
+                </div>
+                ${watchpoints.length > 0 ? `
+                <div style="margin-top:14px;padding:10px 12px;background:rgba(255,152,0,0.07);border-radius:6px;border-left:2px solid #FF9800">
+                    <div style="font-size:0.78em;font-weight:700;color:#FF9800;margin-bottom:7px;letter-spacing:0.04em">POINTS TO WATCH</div>
+                    <div style="display:flex;flex-direction:column;gap:5px">
+                        ${watchpoints.map(w => `<div style="font-size:0.82em;color:var(--text-secondary)">⚠ ${w}</div>`).join('')}
+                    </div>
+                </div>` : ''}
+                <p style="color:var(--text-muted);font-size:0.72em;margin:12px 0 0;font-style:italic">
+                    This summary is auto-generated from available market data. It is not investment advice — always conduct independent research before making investment decisions.
+                </p>
+            </div>`;
     },
 
     async _exportCompare(format) {
@@ -834,6 +932,7 @@ const App = {
                 <div style="display:flex;gap:8px">
                     <button class="btn btn-sm btn-secondary" onclick="Router.navigate('#detail/${ticker}')">Back to Detail</button>
                     <button class="btn btn-sm btn-secondary" onclick="App._saveValuation('${ticker}')">Save Results</button>
+                    <button class="btn btn-sm btn-secondary" onclick="App.screenshotToClipboard()">Screenshot</button>
                 </div>
             </div>
 
@@ -1117,7 +1216,10 @@ const App = {
             }
 
             this.render(`
-                <div class="section-header"><h2>Notes</h2></div>
+                <div class="section-header">
+                    <h2>Notes</h2>
+                    <button class="btn btn-sm btn-secondary" onclick="App.screenshotToClipboard()">Screenshot</button>
+                </div>
                 <div class="card">
                     <div class="card-title">New Note</div>
                     <div class="form-row">
@@ -1218,7 +1320,10 @@ const App = {
             }
 
             this.render(`
-                <div class="section-header"><h2>Watchlists</h2></div>
+                <div class="section-header">
+                    <h2>Watchlists</h2>
+                    <button class="btn btn-sm btn-secondary" onclick="App.screenshotToClipboard()">Screenshot</button>
+                </div>
                 <div class="card">
                     <div class="card-title">New Watchlist</div>
                     <div class="form-row">

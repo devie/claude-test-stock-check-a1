@@ -18,6 +18,90 @@ const Tables = {
         return html;
     },
 
+    // ── Ratio signal thresholds ────────────────────────────────────────────
+    // Each entry: { dir: 'higher'|'lower'|'range', green, gold }
+    // 'higher' = higher is better; 'lower' = lower is better (but > 0)
+    // 'range'  = good is within [green[0], green[1]], gold within [gold[0], gold[1]]
+    RATIO_THRESHOLDS: {
+        'PER':           { dir: 'lower',  green: 15,   gold: 25  },
+        'PBV':           { dir: 'lower',  green: 1.5,  gold: 3   },
+        'EV/EBITDA':     { dir: 'lower',  green: 8,    gold: 15  },
+        'PEG':           { dir: 'lower',  green: 1,    gold: 2   },
+        'ROE':           { dir: 'higher', green: 15,   gold: 8   },
+        'ROA':           { dir: 'higher', green: 10,   gold: 5   },
+        'NPM':           { dir: 'higher', green: 15,   gold: 5   },
+        'GPM':           { dir: 'higher', green: 40,   gold: 20  },
+        'Beta':          { dir: 'range',  green: [0, 1], gold: [-0.5, 1.5] },
+        'DER':           { dir: 'lower',  green: 0.5,  gold: 1.5 },
+        'Current Ratio': { dir: 'higher', green: 2,    gold: 1   },
+        'Dividend Yield':{ dir: 'higher', green: 3,    gold: 1   },
+    },
+
+    /**
+     * Returns 'green' | 'gold' | 'red' | null for a ratio value.
+     */
+    _ratioSignal(metric, value) {
+        if (value == null || !isFinite(value)) return null;
+        const cfg = Tables.RATIO_THRESHOLDS[metric];
+        if (!cfg) return null;
+
+        if (cfg.dir === 'higher') {
+            if (value < 0)          return 'red';
+            if (value >= cfg.green) return 'green';
+            if (value >= cfg.gold)  return 'gold';
+            return 'red';
+        }
+        if (cfg.dir === 'lower') {
+            if (value <= 0)         return 'red';
+            if (value <= cfg.green) return 'green';
+            if (value <= cfg.gold)  return 'gold';
+            return 'red';
+        }
+        if (cfg.dir === 'range') {
+            const [gLo, gHi] = cfg.green;
+            const [yLo, yHi] = cfg.gold;
+            if (value >= gLo && value <= gHi) return 'green';
+            if (value >= yLo && value <= yHi) return 'gold';
+            return 'red';
+        }
+        return null;
+    },
+
+    // Signal dot colors
+    _SIGNAL_COLORS: { green: '#4CAF50', gold: '#FFC107', red: '#f44336' },
+    _SIGNAL_BG:     { green: 'rgba(76,175,80,0.10)', gold: 'rgba(255,193,7,0.12)', red: 'rgba(244,67,54,0.10)' },
+
+    /**
+     * Render a ratio key-value table with green/gold/red signal indicators.
+     * @param {Object} rawData  - { metricName: numericValue }
+     * @param {Object} suffixes - { metricName: '%'|'x'|'' }
+     */
+    keyValueRatios(rawData, suffixes = {}) {
+        let html = `<table class="data-table"><tbody>`;
+        for (const [key, value] of Object.entries(rawData)) {
+            const signal = Tables._ratioSignal(key, value);
+            const color  = signal ? Tables._SIGNAL_COLORS[signal] : null;
+            const bg     = signal ? Tables._SIGNAL_BG[signal]     : '';
+            const suffix = suffixes[key] || '';
+            const dot    = color
+                ? `<span style="color:${color};font-size:0.7em;margin-right:5px;vertical-align:middle">●</span>`
+                : '';
+            let formatted;
+            if (value == null || !isFinite(value)) {
+                formatted = '<span style="color:var(--text-muted)">N/A</span>';
+            } else {
+                const colorStyle = color ? `color:${color};font-weight:600` : '';
+                formatted = `<span style="${colorStyle}">${Tables.addSeparator(value.toFixed(2))}${suffix}</span>`;
+            }
+            html += `<tr>
+                <td>${key}</td>
+                <td style="background:${bg};border-radius:4px;padding:4px 8px">${dot}${formatted}</td>
+            </tr>`;
+        }
+        html += '</tbody></table>';
+        return html;
+    },
+
     /**
      * Render a comparison table (tickers as columns)
      */

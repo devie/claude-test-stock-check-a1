@@ -477,19 +477,18 @@ const App = {
                 'Profitability': ['ROE', 'ROA', 'NPM', 'GPM'],
                 'Risk & Leverage': ['Beta', 'DER', 'Current Ratio', 'Dividend Yield'],
             };
-            // Format ratios with appropriate suffixes
-            const ratioSuffix = { 'ROE': '%', 'ROA': '%', 'NPM': '%', 'GPM': '%', 'Dividend Yield': '%' };
-            const ratioSuffixX = { 'PER': 'x', 'PBV': 'x', 'EV/EBITDA': 'x', 'PEG': 'x', 'DER': 'x', 'Current Ratio': 'x' };
+            // Ratio suffixes for display
+            const ratioSuffixes = {
+                'ROE': '%', 'ROA': '%', 'NPM': '%', 'GPM': '%', 'Dividend Yield': '%',
+                'PER': 'x', 'PBV': 'x', 'EV/EBITDA': 'x', 'PEG': 'x', 'DER': 'x', 'Current Ratio': 'x',
+            };
             let ratiosHtml = '<div class="grid grid-3">';
             for (const [cat, keys] of Object.entries(ratioCategories)) {
-                const filtered = {};
+                const rawForCat = {};
                 keys.forEach(k => {
-                    if (fin.ratios[k] !== undefined) {
-                        const suffix = ratioSuffix[k] || ratioSuffixX[k] || '';
-                        filtered[k] = Tables.formatRatio(fin.ratios[k], suffix);
-                    }
+                    if (fin.ratios[k] !== undefined) rawForCat[k] = fin.ratios[k];
                 });
-                ratiosHtml += `<div class="card"><div class="card-title">${cat}</div>${Tables.keyValue(filtered)}</div>`;
+                ratiosHtml += `<div class="card"><div class="card-title">${cat}</div>${Tables.keyValueRatios(rawForCat, ratioSuffixes)}</div>`;
             }
             ratiosHtml += '</div>';
 

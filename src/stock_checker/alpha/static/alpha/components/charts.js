@@ -374,11 +374,26 @@ const Charts = {
     },
 
     /**
-     * Render projection chart with confidence bands
+     * Render projection chart with confidence bands on a continuous x-axis
      */
     projectionChart(containerId, title, histLabels, histValues, fitted, projections) {
         const traces = [];
 
+        // Build continuous x-axis labels: historical years + projected years
+        const allLabels = [...histLabels];
+        const projLabels = [];
+        if (projections && projections.length > 0) {
+            // Try to extrapolate year labels from historical
+            const lastLabel = histLabels[histLabels.length - 1];
+            const lastYear = parseInt(lastLabel);
+            for (let i = 0; i < projections.length; i++) {
+                const label = !isNaN(lastYear) ? `${lastYear + i + 1}E` : `P+${i + 1}`;
+                projLabels.push(label);
+                allLabels.push(label);
+            }
+        }
+
+        // Historical actual data points
         if (histValues && histValues.some(v => v != null)) {
             traces.push({
                 x: histLabels,
@@ -390,9 +405,17 @@ const Charts = {
             });
         }
 
+        // Fitted trend line (spans historical + connects to projection)
+        const fittedX = [...histLabels];
+        const fittedY = [...fitted];
+        if (projections && projections.length > 0) {
+            // Connect fitted line to first projection point
+            fittedX.push(projLabels[0]);
+            fittedY.push(projections[0].value);
+        }
         traces.push({
-            x: histLabels,
-            y: fitted,
+            x: fittedX,
+            y: fittedY,
             type: 'scatter',
             mode: 'lines+markers',
             name: 'Trend Line',
@@ -400,8 +423,8 @@ const Charts = {
             marker: { color: '#FF9800', size: 6 },
         });
 
+        // Projection data
         if (projections && projections.length > 0) {
-            const projLabels = projections.map((_, i) => `P+${i + 1}`);
             const projVals = projections.map(p => p.value);
             const upper = projections.map(p => p.upper);
             const lower = projections.map(p => p.lower);
@@ -413,7 +436,10 @@ const Charts = {
                 mode: 'lines+markers',
                 name: 'Projection',
                 line: { color: '#26a69a', width: 2 },
+                marker: { size: 7 },
             });
+
+            // Confidence band
             traces.push({
                 x: [...projLabels, ...projLabels.slice().reverse()],
                 y: [...upper, ...lower.slice().reverse()],
@@ -428,6 +454,11 @@ const Charts = {
         this._plot(containerId, traces, this._layout({
             title: { text: title, font: { size: 14 } },
             height: 400,
+            xaxis: {
+                gridcolor: this._baseColors.grid,
+                categoryorder: 'array',
+                categoryarray: allLabels,
+            },
             legend: { orientation: 'h', y: -0.15 },
         }));
     },

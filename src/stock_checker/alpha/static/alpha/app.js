@@ -1051,7 +1051,7 @@ const App = {
                     setTimeout(() => {
                         Charts.projectionChart('proj-chart', `${metric} Projection`,
                             result.historical_labels.map(l => l.substring(0, 4)),
-                            null,
+                            result.historical_values || null,
                             result.fitted,
                             result.projections
                         );

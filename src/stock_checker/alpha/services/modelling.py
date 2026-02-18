@@ -114,9 +114,15 @@ def run_sensitivity(symbol, wacc_range=None, growth_range=None,
 def run_projection(symbol, metric="Total Revenue", periods_ahead=4):
     """Run linear projection on a financial metric."""
     from stock_checker.alpha.services.data_fetcher import get_financials
-    financials = get_financials(symbol)
 
-    series = _extract_row(financials, metric)
+    # Try income statement first, then cashflow, then balance sheet
+    series = None
+    for fetcher in [get_financials, get_cashflow, get_balance_sheet]:
+        df = fetcher(symbol)
+        series = _extract_row(df, metric)
+        if series is not None:
+            break
+
     if series is None:
         return {"error": f"Metric '{metric}' not available"}
 
@@ -127,5 +133,6 @@ def run_projection(symbol, metric="Total Revenue", periods_ahead=4):
     result = calc_linear_projection(values, periods_ahead)
     result["metric"] = metric
     result["historical_labels"] = labels
+    result["historical_values"] = values
 
     return result

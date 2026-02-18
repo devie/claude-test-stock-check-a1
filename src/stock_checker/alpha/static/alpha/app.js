@@ -539,21 +539,22 @@ const App = {
             document.getElementById('compare-results').innerHTML =
                 summaryHtml + tableHtml + chartsHtml + radarHtml + exportHtml;
 
-            // Render bar charts
-            chartMetrics.forEach((m, i) => {
-                const vals = result.tickers.map(t => result.data[t]?.metrics?.[m] ?? null);
-                Charts.comparisonBar(`cmp-chart-${i}`, result.tickers, m, vals);
-            });
-
-            // Render radar
-            const radarData = {};
-            result.tickers.forEach(t => {
-                radarData[t] = {};
-                radarMetrics.forEach(m => {
-                    radarData[t][m] = result.data[t]?.metrics?.[m] ?? 0;
+            // Render bar charts + radar (setTimeout ensures DOM is settled)
+            setTimeout(() => {
+                chartMetrics.forEach((m, i) => {
+                    const vals = result.tickers.map(t => result.data[t]?.metrics?.[m] ?? null);
+                    Charts.comparisonBar(`cmp-chart-${i}`, result.tickers, m, vals);
                 });
-            });
-            Charts.radarChart('radar-chart', result.tickers, radarMetrics, radarData);
+
+                const radarData = {};
+                result.tickers.forEach(t => {
+                    radarData[t] = {};
+                    radarMetrics.forEach(m => {
+                        radarData[t][m] = result.data[t]?.metrics?.[m] ?? 0;
+                    });
+                });
+                Charts.radarChart('radar-chart', result.tickers, radarMetrics, radarData);
+            }, 50);
         } catch (e) {
             document.getElementById('compare-results').innerHTML =
                 `<div class="card"><p class="val-negative">Error: ${e.message}</p></div>`;
@@ -696,12 +697,14 @@ const App = {
                         })}
                         <div id="dcf-chart" style="margin-top:12px"></div>
                     `;
-                    // FCF projection chart
-                    Charts.trendLine('dcf-chart', 'Projected FCF',
-                        result.projected_fcf.map((_, i) => `Y${i + 1}`),
-                        result.projected_fcf,
-                        null
-                    );
+                    // FCF projection chart (use setTimeout to ensure DOM is settled)
+                    setTimeout(() => {
+                        Charts.trendLine('dcf-chart', 'Projected FCF',
+                            result.projected_fcf.map((_, i) => `Y${i + 1}`),
+                            result.projected_fcf,
+                            null
+                        );
+                    }, 50);
                 }
             } catch (e) {
                 document.getElementById('dcf-results').innerHTML = `<p class="val-negative">${e.message}</p>`;
@@ -752,7 +755,9 @@ const App = {
 
                     const names = Object.keys(result.scenarios);
                     const values = names.map(n => result.scenarios[n].intrinsic_per_share || 0);
-                    Charts.comparisonBar('scenario-chart', names.map(n => n.charAt(0).toUpperCase() + n.slice(1)), 'Intrinsic Value / Share', values);
+                    setTimeout(() => {
+                        Charts.comparisonBar('scenario-chart', names.map(n => n.charAt(0).toUpperCase() + n.slice(1)), 'Intrinsic Value / Share', values);
+                    }, 50);
                 }
             } catch (e) {
                 document.getElementById('scenario-results').innerHTML = `<p class="val-negative">${e.message}</p>`;
@@ -773,8 +778,10 @@ const App = {
                     document.getElementById('sensitivity-results').innerHTML = `<p class="val-negative">${result.error}</p>`;
                 } else {
                     document.getElementById('sensitivity-results').innerHTML = '<div id="sens-heatmap"></div>';
-                    Charts.heatmap('sens-heatmap', 'Intrinsic Value / Share',
-                        result.growth_labels, result.wacc_labels, result.matrix);
+                    setTimeout(() => {
+                        Charts.heatmap('sens-heatmap', 'Intrinsic Value / Share',
+                            result.growth_labels, result.wacc_labels, result.matrix);
+                    }, 50);
                 }
             } catch (e) {
                 document.getElementById('sensitivity-results').innerHTML = `<p class="val-negative">${e.message}</p>`;
@@ -802,12 +809,14 @@ const App = {
                             <span class="badge badge-blue">R² = ${result.r_squared}</span>
                             <span class="badge badge-green">Slope = ${Tables.formatValue(result.slope, true)}/yr</span>
                          </div>`;
-                    Charts.projectionChart('proj-chart', `${metric} Projection`,
-                        result.historical_labels.map(l => l.substring(0, 4)),
-                        null,
-                        result.fitted,
-                        result.projections
-                    );
+                    setTimeout(() => {
+                        Charts.projectionChart('proj-chart', `${metric} Projection`,
+                            result.historical_labels.map(l => l.substring(0, 4)),
+                            null,
+                            result.fitted,
+                            result.projections
+                        );
+                    }, 50);
                 }
             } catch (e) {
                 document.getElementById('projection-results').innerHTML = `<p class="val-negative">${e.message}</p>`;

@@ -2,19 +2,44 @@
  * Plotly chart builders for Alpha module
  */
 const Charts = {
-    darkLayout: {
-        plot_bgcolor: '#1e1e2f',
-        paper_bgcolor: '#16161e',
-        font: { color: '#e0e0e0', size: 12 },
-        margin: { l: 50, r: 30, t: 40, b: 40 },
-        xaxis: { gridcolor: '#2a2a3e' },
-        yaxis: { gridcolor: '#2a2a3e' },
+    _baseColors: {
+        bg: '#1e1e2f',
+        paper: '#16161e',
+        grid: '#2a2a3e',
+        text: '#e0e0e0',
     },
 
     config: {
         responsive: true,
         displayModeBar: true,
         modeBarButtonsToRemove: ['lasso2d', 'select2d'],
+    },
+
+    /** Build a fresh layout object (no shared reference issues) */
+    _layout(overrides = {}) {
+        return {
+            plot_bgcolor: this._baseColors.bg,
+            paper_bgcolor: this._baseColors.paper,
+            font: { color: this._baseColors.text, size: 12 },
+            margin: { l: 50, r: 30, t: 40, b: 40 },
+            xaxis: { gridcolor: this._baseColors.grid },
+            yaxis: { gridcolor: this._baseColors.grid },
+            ...overrides,
+        };
+    },
+
+    /** Safe render — checks container exists before plotting */
+    _plot(containerId, traces, layout) {
+        const el = document.getElementById(containerId);
+        if (!el) {
+            console.warn('Charts: container not found:', containerId);
+            return;
+        }
+        try {
+            Plotly.newPlot(el, traces, layout, this.config);
+        } catch (e) {
+            console.error('Charts: Plotly error on', containerId, e);
+        }
     },
 
     /**
@@ -30,12 +55,10 @@ const Charts = {
             text: values.map(v => v != null && typeof v === 'number' ? v.toFixed(2) : 'N/A'),
             textposition: 'auto',
         };
-        const layout = {
-            ...this.darkLayout,
+        this._plot(containerId, [trace], this._layout({
             title: { text: metricName, font: { size: 14 } },
             height: 300,
-        };
-        Plotly.newPlot(containerId, [trace], layout, this.config);
+        }));
     },
 
     /**
@@ -73,22 +96,24 @@ const Charts = {
             }).join('<br>') + '<extra>%{fullData.name}</extra>',
         }));
 
-        const layout = {
-            ...this.darkLayout,
+        this._plot(containerId, traces, {
+            plot_bgcolor: this._baseColors.bg,
+            paper_bgcolor: this._baseColors.paper,
+            font: { color: this._baseColors.text, size: 12 },
+            margin: { l: 50, r: 30, t: 40, b: 40 },
             polar: {
-                bgcolor: '#1e1e2f',
-                radialaxis: { gridcolor: '#2a2a3e', color: '#a0a0b0', range: [0, 100], showticklabels: false },
-                angularaxis: { gridcolor: '#2a2a3e', color: '#a0a0b0' },
+                bgcolor: this._baseColors.bg,
+                radialaxis: { gridcolor: this._baseColors.grid, color: '#a0a0b0', range: [0, 100], showticklabels: false },
+                angularaxis: { gridcolor: this._baseColors.grid, color: '#a0a0b0' },
             },
             title: { text: 'Normalized Comparison (0-100)', font: { size: 14 } },
             height: 450,
             legend: { font: { size: 11 } },
-        };
-        Plotly.newPlot(containerId, traces, layout, this.config);
+        });
     },
 
     /**
-     * Render a trend line chart
+     * Render a trend line chart (with optional growth bars on y2)
      */
     trendLine(containerId, title, labels, values, growthPcts) {
         const traces = [{
@@ -101,7 +126,13 @@ const Charts = {
             marker: { size: 6 },
         }];
 
-        if (growthPcts) {
+        const layout = this._layout({
+            title: { text: title, font: { size: 14 } },
+            height: 350,
+            legend: { orientation: 'h', y: -0.15 },
+        });
+
+        if (growthPcts && growthPcts.some(g => g != null)) {
             traces.push({
                 x: labels,
                 y: growthPcts,
@@ -113,31 +144,22 @@ const Charts = {
                 },
                 opacity: 0.5,
             });
-        }
-
-        const layout = {
-            ...this.darkLayout,
-            title: { text: title, font: { size: 14 } },
-            height: 350,
-            yaxis2: growthPcts ? {
+            layout.yaxis2 = {
                 overlaying: 'y',
                 side: 'right',
                 title: 'Growth %',
-                gridcolor: '#2a2a3e',
-            } : undefined,
-            legend: { orientation: 'h', y: -0.15 },
-        };
-        Plotly.newPlot(containerId, traces, layout, this.config);
+                gridcolor: this._baseColors.grid,
+                anchor: 'x',
+            };
+        }
+
+        this._plot(containerId, traces, layout);
     },
 
     /**
      * Render a sensitivity heatmap
      */
-    heatmap(containerId, title, xLabels, yLabels, matrix, currentPrice) {
-        const colorscale = currentPrice
-            ? matrix.map(row => row.map(v => v != null && v > currentPrice ? 1 : 0)).flat()
-            : null;
-
+    heatmap(containerId, title, xLabels, yLabels, matrix) {
         const trace = {
             x: xLabels,
             y: yLabels,
@@ -149,14 +171,12 @@ const Charts = {
             hovertemplate: 'WACC: %{y}<br>Growth: %{x}<br>Value: %{z:.2f}<extra></extra>',
         };
 
-        const layout = {
-            ...this.darkLayout,
+        this._plot(containerId, [trace], this._layout({
             title: { text: title, font: { size: 14 } },
             height: 400,
-            xaxis: { ...this.darkLayout.xaxis, title: 'Growth Rate' },
-            yaxis: { ...this.darkLayout.yaxis, title: 'WACC' },
-        };
-        Plotly.newPlot(containerId, [trace], layout, this.config);
+            xaxis: { gridcolor: this._baseColors.grid, title: 'Growth Rate' },
+            yaxis: { gridcolor: this._baseColors.grid, title: 'WACC' },
+        }));
     },
 
     /**
@@ -176,8 +196,6 @@ const Charts = {
             name: data.ticker,
             increasing: { line: { color: '#26a69a' } },
             decreasing: { line: { color: '#ef5350' } },
-            xaxis: 'x',
-            yaxis: 'y',
         });
 
         // Overlay indicators (SMA, EMA, BB) on price chart
@@ -186,7 +204,7 @@ const Charts = {
             'EMA12': '#00BCD4', 'EMA26': '#E91E63', 'EMA50': '#8BC34A',
             'BB_Upper': '#666', 'BB_Middle': '#999', 'BB_Lower': '#666',
         };
-        const separateIndicators = {}; // RSI, MACD go on separate subplots
+        const separateIndicators = {};
 
         for (const [name, values] of Object.entries(indicators)) {
             if (name.startsWith('RSI') || name.startsWith('MACD')) {
@@ -204,7 +222,6 @@ const Charts = {
                     width: name.startsWith('BB_') ? 1 : 1.5,
                     dash: name === 'BB_Upper' || name === 'BB_Lower' ? 'dot' : 'solid',
                 },
-                yaxis: 'y',
                 connectgaps: false,
             });
         }
@@ -219,11 +236,10 @@ const Charts = {
                 line: { color: 'transparent' },
                 name: 'BB Band',
                 showlegend: false,
-                yaxis: 'y',
             });
         }
 
-        // Volume bars
+        // Volume bars on secondary y-axis
         const volColors = data.close.map((c, i) =>
             i > 0 && c >= data.close[i - 1] ? 'rgba(38,166,154,0.4)' : 'rgba(239,83,80,0.4)'
         );
@@ -242,20 +258,51 @@ const Charts = {
         const hasMACD = Object.keys(separateIndicators).some(k => k.startsWith('MACD'));
 
         let totalHeight = 550;
-        let yDomains = {};
+        let priceDomain, rsiDomain, macdDomain;
 
         if (hasRSI && hasMACD) {
-            yDomains = { price: [0.38, 1], vol: [0.38, 1], rsi: [0.20, 0.35], macd: [0, 0.17] };
+            priceDomain = [0.38, 1]; rsiDomain = [0.20, 0.35]; macdDomain = [0, 0.17];
             totalHeight = 700;
         } else if (hasRSI) {
-            yDomains = { price: [0.25, 1], vol: [0.25, 1], rsi: [0, 0.22] };
+            priceDomain = [0.25, 1]; rsiDomain = [0, 0.22];
             totalHeight = 620;
         } else if (hasMACD) {
-            yDomains = { price: [0.25, 1], vol: [0.25, 1], macd: [0, 0.22] };
+            priceDomain = [0.25, 1]; macdDomain = [0, 0.22];
             totalHeight = 620;
         } else {
-            yDomains = { price: [0.15, 1], vol: [0.15, 1] };
+            priceDomain = [0.15, 1];
         }
+
+        const maxVol = Math.max(...data.volume.filter(v => v != null), 1);
+
+        const layout = {
+            plot_bgcolor: this._baseColors.bg,
+            paper_bgcolor: this._baseColors.paper,
+            font: { color: this._baseColors.text, size: 12 },
+            height: totalHeight,
+            title: { text: `${data.ticker} - ${data.period}`, font: { size: 14 } },
+            xaxis: {
+                gridcolor: this._baseColors.grid,
+                rangeslider: { visible: false },
+                type: 'date',
+            },
+            yaxis: {
+                domain: priceDomain,
+                gridcolor: this._baseColors.grid,
+                title: 'Price',
+            },
+            yaxis2: {
+                domain: priceDomain,
+                overlaying: 'y',
+                side: 'right',
+                showgrid: false,
+                showticklabels: false,
+                range: [0, maxVol * 4],
+                anchor: 'x',
+            },
+            legend: { orientation: 'h', y: -0.05, font: { size: 10 } },
+            margin: { l: 60, r: 30, t: 40, b: 30 },
+        };
 
         // RSI subplot
         if (hasRSI) {
@@ -267,7 +314,6 @@ const Charts = {
                     yaxis: 'y3', connectgaps: false,
                 });
             }
-            // RSI reference lines
             traces.push({
                 x: [data.dates[0], data.dates[data.dates.length - 1]], y: [70, 70],
                 type: 'scatter', mode: 'lines', line: { color: '#ef5350', width: 0.5, dash: 'dot' },
@@ -278,23 +324,32 @@ const Charts = {
                 type: 'scatter', mode: 'lines', line: { color: '#26a69a', width: 0.5, dash: 'dot' },
                 yaxis: 'y3', showlegend: false,
             });
+            layout.yaxis3 = {
+                domain: rsiDomain,
+                gridcolor: this._baseColors.grid,
+                title: 'RSI',
+                range: [0, 100],
+                anchor: 'x',
+            };
         }
 
         // MACD subplot
         if (hasMACD) {
-            const yAxisMACD = hasRSI ? 'y4' : 'y3';
+            const yAxisRef = hasRSI ? 'y4' : 'y3';
+            const yAxisKey = hasRSI ? 'yaxis4' : 'yaxis3';
+
             if (separateIndicators['MACD']) {
                 traces.push({
                     x: data.dates, y: separateIndicators['MACD'], type: 'scatter', mode: 'lines',
                     name: 'MACD', line: { color: '#2196F3', width: 1.5 },
-                    yaxis: yAxisMACD, connectgaps: false,
+                    yaxis: yAxisRef, connectgaps: false,
                 });
             }
             if (separateIndicators['MACD_Signal']) {
                 traces.push({
                     x: data.dates, y: separateIndicators['MACD_Signal'], type: 'scatter', mode: 'lines',
                     name: 'Signal', line: { color: '#FF9800', width: 1.5 },
-                    yaxis: yAxisMACD, connectgaps: false,
+                    yaxis: yAxisRef, connectgaps: false,
                 });
             }
             if (separateIndicators['MACD_Hist']) {
@@ -304,55 +359,18 @@ const Charts = {
                 traces.push({
                     x: data.dates, y: separateIndicators['MACD_Hist'], type: 'bar',
                     name: 'Histogram', marker: { color: histColors },
-                    yaxis: yAxisMACD, showlegend: false,
+                    yaxis: yAxisRef, showlegend: false,
                 });
             }
-        }
-
-        const layout = {
-            ...this.darkLayout,
-            height: totalHeight,
-            title: { text: `${data.ticker} - ${data.period}`, font: { size: 14 } },
-            xaxis: {
-                gridcolor: '#2a2a3e',
-                rangeslider: { visible: false },
-                type: 'date',
-            },
-            yaxis: {
-                domain: yDomains.price,
-                gridcolor: '#2a2a3e',
-                title: 'Price',
-            },
-            yaxis2: {
-                domain: yDomains.vol,
-                overlaying: 'y',
-                side: 'right',
-                showgrid: false,
-                showticklabels: false,
-                range: [0, Math.max(...data.volume.filter(v => v != null)) * 4],
-            },
-            legend: { orientation: 'h', y: -0.05, font: { size: 10 } },
-            margin: { l: 60, r: 30, t: 40, b: 30 },
-        };
-
-        if (hasRSI) {
-            layout.yaxis3 = {
-                domain: yDomains.rsi,
-                gridcolor: '#2a2a3e',
-                title: 'RSI',
-                range: [0, 100],
-            };
-        }
-        if (hasMACD) {
-            const macdAxisKey = hasRSI ? 'yaxis4' : 'yaxis3';
-            layout[macdAxisKey] = {
-                domain: yDomains.macd || yDomains.macd || [0, 0.22],
-                gridcolor: '#2a2a3e',
+            layout[yAxisKey] = {
+                domain: macdDomain || [0, 0.22],
+                gridcolor: this._baseColors.grid,
                 title: 'MACD',
+                anchor: 'x',
             };
         }
 
-        Plotly.newPlot(containerId, traces, layout, this.config);
+        this._plot(containerId, traces, layout);
     },
 
     /**
@@ -361,7 +379,6 @@ const Charts = {
     projectionChart(containerId, title, histLabels, histValues, fitted, projections) {
         const traces = [];
 
-        // Historical data points (if provided)
         if (histValues && histValues.some(v => v != null)) {
             traces.push({
                 x: histLabels,
@@ -373,7 +390,6 @@ const Charts = {
             });
         }
 
-        // Fitted line
         traces.push({
             x: histLabels,
             y: fitted,
@@ -409,12 +425,10 @@ const Charts = {
             });
         }
 
-        const layout = {
-            ...this.darkLayout,
+        this._plot(containerId, traces, this._layout({
             title: { text: title, font: { size: 14 } },
             height: 400,
             legend: { orientation: 'h', y: -0.15 },
-        };
-        Plotly.newPlot(containerId, traces, layout, this.config);
+        }));
     },
 };

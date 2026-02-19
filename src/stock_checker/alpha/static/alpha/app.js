@@ -414,16 +414,34 @@ const App = {
             'Avoid': 'badge-red',
         };
 
-        const gauge = (label, score, color) => {
+        const qColor = (s) => s == null ? '#888' : s >= 70 ? '#4caf50' : s >= 50 ? '#ff9800' : '#f44336';
+
+        // Q6: gauge with clickable label and breakdown panel
+        const gauge = (label, score, color, type, breakdown) => {
             if (score == null) return `<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:0.85em;color:var(--text-secondary)">${label}</span><span style="font-size:0.85em;color:var(--text-muted)">N/A</span></div><div style="height:8px;background:var(--bg-input);border-radius:4px"></div></div>`;
             const pct = Math.max(0, Math.min(100, score));
+            const breakdownRows = breakdown ? Object.entries(breakdown)
+                .filter(([, v]) => v != null)
+                .map(([metric, val]) => {
+                    const pv = Math.max(0, Math.min(100, val));
+                    return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
+                        <span style="font-size:0.73em;color:var(--text-muted);width:110px;flex-shrink:0">${metric}</span>
+                        <div style="flex:1;height:5px;background:var(--bg-card);border-radius:3px;overflow:hidden">
+                            <div style="height:100%;width:${pv}%;background:${color};opacity:0.75;border-radius:3px"></div>
+                        </div>
+                        <span style="font-size:0.73em;font-weight:600;color:${color};width:28px;text-align:right">${pv.toFixed(0)}</span>
+                    </div>`;
+                }).join('') : '';
             return `<div style="margin-bottom:12px">
-                <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-                    <span style="font-size:0.85em;color:var(--text-secondary)">${label}</span>
+                <div style="display:flex;justify-content:space-between;margin-bottom:4px;cursor:pointer" onclick="App._toggleScoreBreakdown('${type}')">
+                    <span style="font-size:0.85em;color:var(--text-secondary)">${label} <span style="color:var(--text-muted);font-size:0.75em">▾</span></span>
                     <span style="font-size:0.85em;font-weight:700;color:${color}">${pct.toFixed(1)}</span>
                 </div>
                 <div style="height:8px;background:var(--bg-input);border-radius:4px;overflow:hidden">
                     <div style="height:100%;width:${pct}%;background:${color};border-radius:4px;transition:width 0.6s ease"></div>
+                </div>
+                <div id="score-breakdown-${type}" class="hidden" style="margin-top:6px;padding:8px;background:var(--bg-input);border-radius:4px">
+                    ${breakdownRows || '<p style="font-size:0.75em;color:var(--text-muted);margin:0">Breakdown unavailable</p>'}
                 </div>
             </div>`;
         };
@@ -433,14 +451,14 @@ const App = {
             ? `<div style="text-align:center;margin-bottom:16px"><span class="badge ${recBadgeClass[rec] || 'badge-blue'}" style="font-size:1.1em;padding:5px 18px">${rec}</span></div>`
             : '';
 
-        const qColor = (s) => s == null ? '#888' : s >= 70 ? '#4caf50' : s >= 50 ? '#ff9800' : '#f44336';
+        const sd = scores.score_details || {};
 
         return `<div class="card">
             <div class="card-title">Composite Scores</div>
             ${recHtml}
-            ${gauge('Quality', scores.quality_score, qColor(scores.quality_score))}
-            ${gauge('Valuation', scores.valuation_score, qColor(scores.valuation_score))}
-            ${gauge('Risk', scores.risk_score, qColor(scores.risk_score))}
+            ${gauge('Quality', scores.quality_score, qColor(scores.quality_score), 'quality', sd.quality)}
+            ${gauge('Valuation', scores.valuation_score, qColor(scores.valuation_score), 'valuation', sd.valuation)}
+            ${gauge('Risk', scores.risk_score, qColor(scores.risk_score), 'risk', sd.risk)}
             ${scores.composite_score != null ? `<div style="padding-top:8px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center"><span style="font-size:0.85em;color:var(--text-secondary)">Composite</span><span style="font-weight:700;font-size:1.1em;color:${qColor(scores.composite_score)}">${scores.composite_score.toFixed(1)} / 100</span></div>` : ''}
         </div>`;
     },
@@ -609,6 +627,252 @@ const App = {
     // --- Detail ---
     _detailIndicators: ['SMA20', 'SMA50'],
     _detailPeriod: '1y',
+    _detailTab: 'overview',
+    _expandedRatioCards: new Set(),
+    _pendingModelTicker: null,
+    _lastCurrentPrice: null,
+    _lastDetailRatios: null,
+    _lastDetailRatioSuffixes: null,
+
+    // Q1: 4-tab switcher for detail page
+    _switchDetailTab(tab) {
+        this._detailTab = tab;
+        ['overview', 'financials', 'trends', 'valuation'].forEach(t => {
+            const panel = document.getElementById(`detail-tab-${t}`);
+            const btn = document.getElementById(`dtab-btn-${t}`);
+            if (panel) panel.classList.toggle('hidden', t !== tab);
+            if (btn) btn.className = `btn btn-sm ${t === tab ? 'btn-primary' : 'btn-secondary'}`;
+        });
+    },
+
+    // Q2: Ratio card with N/A filtering
+    _renderRatioCardHtml(cardId, title, entries, ratioSuffixes) {
+        const isExpanded = this._expandedRatioCards.has(cardId);
+        const isNA = (v) => v == null || v === undefined || v === 'N/A' || v === '—' || v === '' || !isFinite(parseFloat(v));
+        const validEntries = entries.filter(([, v]) => !isNA(v));
+        const hiddenCount = entries.length - validEntries.length;
+        const displayEntries = isExpanded ? entries : validEntries;
+        const fmtRatio = (k, v) => {
+            if (isNA(v)) return '<span style="color:var(--text-muted)">N/A</span>';
+            const n = parseFloat(v);
+            const suffix = ratioSuffixes[k] || '';
+            const neg = n < 0;
+            const formatted = Tables.addSeparator(Math.abs(n).toFixed(2));
+            return `<span style="${neg ? 'color:var(--red)' : ''}">${neg ? '-' : ''}${formatted}${suffix}</span>`;
+        };
+        let html = `<div class="card"><div class="card-title">${title}</div>`;
+        if (displayEntries.length === 0) {
+            html += '<p style="color:var(--text-muted);font-size:0.85em">No data available</p>';
+        } else {
+            html += '<table class="data-table"><tbody>';
+            displayEntries.forEach(([k, v]) => {
+                html += `<tr><td style="color:var(--text-muted);font-size:0.85em">${k}</td><td style="font-weight:600;text-align:right">${fmtRatio(k, v)}</td></tr>`;
+            });
+            html += '</tbody></table>';
+        }
+        if (hiddenCount > 0) {
+            html += `<button class="btn btn-sm btn-secondary" style="margin-top:8px;width:100%;font-size:0.78em"
+                onclick="App._toggleRatioCard('${cardId}')">
+                ${isExpanded ? 'Hide N/A fields' : `Show ${hiddenCount} N/A field${hiddenCount !== 1 ? 's' : ''}`}
+            </button>`;
+        }
+        return html + '</div>';
+    },
+
+    _buildRatioCardsHtml(ratios, ratioSuffixes) {
+        const cats = {
+            'Valuation': ['PER', 'PBV', 'EV/EBITDA', 'PEG'],
+            'Profitability': ['ROE', 'ROA', 'NPM', 'GPM'],
+            'Risk & Leverage': ['Beta', 'DER', 'Current Ratio', 'Dividend Yield'],
+        };
+        const cards = Object.entries(cats).map(([cat, keys]) => {
+            const entries = keys.map(k => [k, ratios[k] !== undefined ? ratios[k] : null]);
+            return this._renderRatioCardHtml(cat, cat, entries, ratioSuffixes);
+        });
+        return `<div class="grid grid-3">${cards.join('')}</div>`;
+    },
+
+    _toggleRatioCard(cardId) {
+        if (this._expandedRatioCards.has(cardId)) {
+            this._expandedRatioCards.delete(cardId);
+        } else {
+            this._expandedRatioCards.add(cardId);
+        }
+        const container = document.getElementById('ratio-cards-container');
+        if (container && this._lastDetailRatios) {
+            container.innerHTML = this._buildRatioCardsHtml(this._lastDetailRatios, this._lastDetailRatioSuffixes);
+        }
+    },
+
+    // Q6: Score breakdown toggle
+    _toggleScoreBreakdown(type) {
+        const el = document.getElementById(`score-breakdown-${type}`);
+        if (el) el.classList.toggle('hidden');
+    },
+
+    // Q5: Valuation synthesis
+    SECTOR_WEIGHTS: {
+        'perbankan':             { dcf: 0.10, pbv: 0.55, ddm: 0.25, roe: 0.10 },
+        'telekomunikasi':        { dcf: 0.40, pbv: 0.15, ddm: 0.25, roe: 0.20 },
+        'energi_pertambangan':   { dcf: 0.45, pbv: 0.20, ddm: 0.15, roe: 0.20 },
+        'consumer_goods':        { dcf: 0.35, pbv: 0.25, ddm: 0.20, roe: 0.20 },
+        'manufaktur':            { dcf: 0.40, pbv: 0.25, ddm: 0.15, roe: 0.20 },
+        'properti_konstruksi':   { dcf: 0.30, pbv: 0.45, ddm: 0.10, roe: 0.15 },
+        'logistik_transportasi': { dcf: 0.40, pbv: 0.20, ddm: 0.15, roe: 0.25 },
+        'healthcare':            { dcf: 0.40, pbv: 0.20, ddm: 0.15, roe: 0.25 },
+        'teknologi':             { dcf: 0.50, pbv: 0.15, ddm: 0.10, roe: 0.25 },
+        '_default':              { dcf: 0.35, pbv: 0.25, ddm: 0.20, roe: 0.20 },
+    },
+
+    async _loadValuationSynthesis(ticker) {
+        const el = document.getElementById('valuation-synthesis');
+        if (!el) return;
+        try {
+            const [ind, dcfRes, pbvRes, ddmRes, roeRes] = await Promise.all([
+                this.api('/api/industry', { method: 'POST', body: { ticker } }).catch(() => null),
+                this.api('/api/model/dcf', { method: 'POST', body: { ticker, growth_rate: 0.10, terminal_growth: 0.03, wacc: 0.10, projection_years: 5 } }).catch(() => null),
+                this.api('/api/model/pbv', { method: 'POST', body: { ticker, cost_of_equity: 0.10, terminal_growth: 0.05 } }).catch(() => null),
+                this.api('/api/model/ddm', { method: 'POST', body: { ticker, growth_rate: 0.05, cost_of_equity: 0.10 } }).catch(() => null),
+                this.api('/api/model/roe', { method: 'POST', body: { ticker, cost_of_equity: 0.10 } }).catch(() => null),
+            ]);
+
+            const industryKey = ind?.industry_key || '_default';
+            const sectorLabel = ind?.label || 'General';
+            const rawWeights = this.SECTOR_WEIGHTS[industryKey] || this.SECTOR_WEIGHTS['_default'];
+
+            // Get current price from DCF result or stored value
+            const cp = (dcfRes?.error ? null : dcfRes?.current_price) ?? this._lastCurrentPrice;
+            if (cp != null) this._lastCurrentPrice = cp;
+
+            const models = [
+                { key: 'dcf', label: 'DCF', intrinsic: dcfRes?.error ? null : dcfRes?.intrinsic_per_share, weight: rawWeights.dcf },
+                { key: 'pbv', label: 'PBV', intrinsic: pbvRes?.error ? null : pbvRes?.intrinsic_per_share, weight: rawWeights.pbv },
+                { key: 'ddm', label: 'DDM', intrinsic: ddmRes?.error ? null : ddmRes?.intrinsic_per_share, weight: rawWeights.ddm },
+                { key: 'roe', label: 'ROE Growth', intrinsic: roeRes?.error ? null : roeRes?.intrinsic_per_share, weight: rawWeights.roe },
+            ];
+
+            // Re-normalize weights for available models only
+            const available = models.filter(m => m.intrinsic != null);
+            const totalW = available.reduce((s, m) => s + m.weight, 0);
+            if (totalW > 0) available.forEach(m => m.normWeight = m.weight / totalW);
+            else available.forEach(m => m.normWeight = 1 / available.length);
+
+            el.innerHTML = this._renderValuationSynthesis(models, cp, sectorLabel);
+        } catch (e) {
+            el.innerHTML = '';
+        }
+    },
+
+    _renderValuationSynthesis(models, currentPrice, sectorLabel) {
+        const available = models.filter(m => m.intrinsic != null && m.normWeight != null);
+        const weightedFV = available.length > 0
+            ? available.reduce((s, m) => s + m.intrinsic * m.normWeight, 0)
+            : null;
+
+        const upside = (weightedFV != null && currentPrice != null && currentPrice > 0)
+            ? (weightedFV - currentPrice) / currentPrice * 100
+            : null;
+        const upsideHtml = upside != null ? (() => {
+            const cls = upside > 5 ? 'badge-green' : upside < -5 ? 'badge-red' : 'badge-orange';
+            const verdict = upside > 5 ? 'Undervalued' : upside < -5 ? 'Overvalued' : 'Fair Value';
+            return `<span class="badge ${cls}" style="font-size:1em;padding:4px 12px">${upside > 0 ? '+' : ''}${upside.toFixed(1)}% ${verdict}</span>`;
+        })() : '';
+
+        let rows = models.map(m => {
+            const available2 = m.intrinsic != null;
+            const normW = m.normWeight != null ? `${(m.normWeight * 100).toFixed(0)}%` : '—';
+            const contrib = (m.intrinsic != null && m.normWeight != null) ? Tables.addSeparator((m.intrinsic * m.normWeight).toFixed(2)) : '—';
+            return `<tr style="opacity:${available2 ? 1 : 0.45}">
+                <td style="font-size:0.85em">${m.label}</td>
+                <td style="font-weight:600;text-align:right">${m.intrinsic != null ? Tables.addSeparator(m.intrinsic.toFixed(2)) : 'N/A'}</td>
+                <td style="text-align:right;font-size:0.85em;color:var(--text-muted)">${normW}</td>
+                <td style="text-align:right;font-size:0.85em">${contrib}</td>
+            </tr>`;
+        }).join('');
+
+        const fvRow = weightedFV != null ? `<tr style="border-top:2px solid var(--border);font-weight:700">
+            <td colspan="3">Weighted Fair Value</td>
+            <td style="text-align:right;font-size:1.05em">${Tables.addSeparator(weightedFV.toFixed(2))}</td>
+        </tr>` : '';
+
+        return `<div class="card" style="border-left:3px solid var(--accent)">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+                <div class="card-title" style="margin:0">Valuation Synthesis</div>
+                ${upsideHtml}
+            </div>
+            <table class="data-table">
+                <thead><tr><th>Model</th><th style="text-align:right">Intrinsic</th><th style="text-align:right">Weight</th><th style="text-align:right">Contribution</th></tr></thead>
+                <tbody>${rows}${fvRow}</tbody>
+            </table>
+            ${currentPrice != null ? `<div style="display:flex;justify-content:space-between;margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
+                <span style="font-size:0.82em;color:var(--text-muted)">Current Price</span>
+                <span style="font-weight:600">${Tables.addSeparator(currentPrice.toFixed(2))}</span>
+            </div>` : ''}
+            <p style="color:var(--text-muted);font-size:0.75em;margin-top:10px">Weights auto-set for ${sectorLabel}. Adjust individual model inputs below for custom assumptions.</p>
+        </div>`;
+    },
+
+    // Q8: Sensitivity heat map color helper
+    _sensitivityCellColor(intrinsic, currentPrice) {
+        if (currentPrice == null || currentPrice <= 0 || intrinsic == null) return { bg: '#37474f', text: '#fff' };
+        const pct = (intrinsic - currentPrice) / currentPrice * 100;
+        if (pct > 30)       return { bg: '#1b5e20', text: '#fff' };
+        if (pct > 15)       return { bg: '#388e3c', text: '#fff' };
+        if (pct > 5)        return { bg: '#81c784', text: '#333' };
+        if (pct >= -5)      return { bg: '#fff176', text: '#333' };
+        if (pct >= -15)     return { bg: '#e57373', text: '#fff' };
+        if (pct >= -30)     return { bg: '#c62828', text: '#fff' };
+        return { bg: '#7f0000', text: '#fff' };
+    },
+
+    _renderSensitivityHeatmap(result, currentPrice) {
+        const { growth_labels, wacc_labels, matrix } = result;
+        // Find nearest cell to current price
+        let nearestI = -1, nearestJ = -1, nearestDiff = Infinity;
+        if (currentPrice != null) {
+            matrix.forEach((row, i) => row.forEach((val, j) => {
+                if (val == null) return;
+                const diff = Math.abs(val - currentPrice);
+                if (diff < nearestDiff) { nearestDiff = diff; nearestI = i; nearestJ = j; }
+            }));
+        }
+
+        let html = `<div style="overflow-x:auto">
+            <table style="border-collapse:collapse;font-size:0.78em;width:100%">
+                <thead><tr>
+                    <th style="padding:4px 8px;color:var(--text-muted);font-size:0.85em">WACC \\ Growth</th>
+                    ${growth_labels.map(g => `<th style="padding:4px 8px;color:var(--text-muted);font-weight:600;text-align:center">${g}</th>`).join('')}
+                </tr></thead>
+                <tbody>
+                ${matrix.map((row, i) => `<tr>
+                    <td style="padding:4px 8px;color:var(--text-muted);font-weight:600;white-space:nowrap">${wacc_labels[i]}</td>
+                    ${row.map((val, j) => {
+                        const { bg, text } = this._sensitivityCellColor(val, currentPrice);
+                        const isNearest = (i === nearestI && j === nearestJ);
+                        const outline = isNearest ? 'outline:2px solid var(--accent);outline-offset:-2px;' : '';
+                        return `<td style="padding:5px 8px;background:${bg};color:${text};text-align:center;font-weight:${isNearest ? '700' : '400'};${outline}border:1px solid rgba(0,0,0,0.15)">
+                            ${val != null ? Tables.addSeparator(val.toFixed(0)) : '–'}
+                        </td>`;
+                    }).join('')}
+                </tr>`).join('')}
+                </tbody>
+            </table>
+        </div>
+        <div style="display:flex;gap:4px;margin-top:10px;flex-wrap:wrap;align-items:center">
+            <span style="font-size:0.75em;color:var(--text-muted);margin-right:4px">Upside:</span>
+            ${[
+                { bg: '#1b5e20', text: '#fff', label: '>+30%' },
+                { bg: '#388e3c', text: '#fff', label: '+15–30%' },
+                { bg: '#81c784', text: '#333', label: '+5–15%' },
+                { bg: '#fff176', text: '#333', label: '±5%' },
+                { bg: '#e57373', text: '#fff', label: '-5–15%' },
+                { bg: '#c62828', text: '#fff', label: '-15–30%' },
+                { bg: '#7f0000', text: '#fff', label: '<-30%' },
+            ].map(c => `<span style="background:${c.bg};color:${c.text};padding:2px 7px;border-radius:3px;font-size:0.72em;font-weight:600">${c.label}</span>`).join('')}
+        </div>
+        ${currentPrice != null ? `<p style="font-size:0.75em;color:var(--text-muted);margin-top:6px">Current price: ${Tables.addSeparator(currentPrice.toFixed(2))} · Highlighted cell = nearest to current price</p>` : ''}`;
+        return html;
+    },
 
     // ── Industry analysis helpers ────────────────────────────────────────────
 
@@ -824,6 +1088,9 @@ const App = {
         }
         this.renderSkeleton('detail');
         this.showLoading();
+        // Reset detail tab on new ticker
+        this._detailTab = 'overview';
+        this._expandedRatioCards = new Set();
         try {
             const [fin, trends] = await Promise.all([
                 this.api('/api/financials', { method: 'POST', body: { ticker } }),
@@ -831,7 +1098,7 @@ const App = {
             ]);
 
             // Fetch scores async (non-blocking — fills in after main render)
-            let scoresHtml = '<div class="card"><div class="card-title">Composite Scores</div><div class="skeleton skeleton-card" style="height:80px"></div></div>';
+            const scoresSkeletonHtml = '<div class="card"><div class="card-title">Composite Scores</div><div class="skeleton skeleton-card" style="height:80px"></div></div>';
             this.api('/api/scores', { method: 'POST', body: { ticker } }).then(sc => {
                 const el = document.getElementById('score-gauges-container');
                 if (el) el.innerHTML = this._renderScoreGauges(sc);
@@ -845,12 +1112,21 @@ const App = {
             const hl = fin.highlights || {};
             const ccy = ps.currency || '';
 
-            // Price summary card
+            // Q2: Store ratios for N/A filter re-render
+            const ratioSuffixes = {
+                'ROE': '%', 'ROA': '%', 'NPM': '%', 'GPM': '%', 'Dividend Yield': '%',
+                'PER': 'x', 'PBV': 'x', 'EV/EBITDA': 'x', 'PEG': 'x', 'DER': 'x', 'Current Ratio': 'x',
+            };
+            this._lastDetailRatios = fin.ratios;
+            this._lastDetailRatioSuffixes = ratioSuffixes;
+
+            // Q7: Price summary with H2H button
             const priceSummaryHtml = `
                 <div class="card">
                     <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px">
-                        <div>
+                        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
                             <span style="font-size:2em;font-weight:700">${Tables.formatPrice(ps.current_price, ccy)}</span>
+                            <button class="btn btn-sm btn-secondary" onclick="App._triggerH2H('${ticker}','')">⇄ Compare H2H</button>
                         </div>
                         <div style="display:flex;gap:16px;flex-wrap:wrap">
                             <div><span style="color:var(--text-muted);font-size:0.8em">Mkt Cap</span><br>${fv(ps.market_cap, true, ccy)}</div>
@@ -862,7 +1138,7 @@ const App = {
                     </div>
                 </div>`;
 
-            // Highlights card
+            // Highlights
             let highlightsHtml = '';
             if (Object.keys(hl).length > 0) {
                 highlightsHtml = '<div class="card"><div class="card-title">Latest Year Highlights</div><div class="grid grid-3">' +
@@ -874,26 +1150,22 @@ const App = {
                     `).join('') + '</div></div>';
             }
 
-            // Ratios - split into categories
-            const ratioCategories = {
+            // Q2: Ratio cards (N/A filtered in overview)
+            const ratioCardsHtml = this._buildRatioCardsHtml(fin.ratios, ratioSuffixes);
+
+            // Full ratio table for Financials tab (all metrics, unfiltered)
+            const allRatioSections = {
                 'Valuation': ['PER', 'PBV', 'EV/EBITDA', 'PEG'],
                 'Profitability': ['ROE', 'ROA', 'NPM', 'GPM'],
                 'Risk & Leverage': ['Beta', 'DER', 'Current Ratio', 'Dividend Yield'],
             };
-            // Ratio suffixes for display
-            const ratioSuffixes = {
-                'ROE': '%', 'ROA': '%', 'NPM': '%', 'GPM': '%', 'Dividend Yield': '%',
-                'PER': 'x', 'PBV': 'x', 'EV/EBITDA': 'x', 'PEG': 'x', 'DER': 'x', 'Current Ratio': 'x',
-            };
-            let ratiosHtml = '<div class="grid grid-3">';
-            for (const [cat, keys] of Object.entries(ratioCategories)) {
+            let fullRatioHtml = '<div class="card" style="margin-top:0"><div class="card-title">All Ratios</div><div class="grid grid-3">';
+            for (const [cat, keys] of Object.entries(allRatioSections)) {
                 const rawForCat = {};
-                keys.forEach(k => {
-                    if (fin.ratios[k] !== undefined) rawForCat[k] = fin.ratios[k];
-                });
-                ratiosHtml += `<div class="card"><div class="card-title">${cat}</div>${Tables.keyValueRatios(rawForCat, ratioSuffixes)}</div>`;
+                keys.forEach(k => { if (fin.ratios[k] !== undefined) rawForCat[k] = fin.ratios[k]; });
+                fullRatioHtml += `<div><div style="font-size:0.82em;font-weight:600;color:var(--text-secondary);margin-bottom:6px">${cat}</div>${Tables.keyValueRatios(rawForCat, ratioSuffixes)}</div>`;
             }
-            ratiosHtml += '</div>';
+            fullRatioHtml += '</div></div>';
 
             // Anomalies
             let anomalyHtml = '';
@@ -922,7 +1194,7 @@ const App = {
             // Financial statement tabs
             const stmtTabs = `
                 <div class="card">
-                    <div style="display:flex;gap:8px;margin-bottom:12px">
+                    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
                         <button class="btn btn-sm btn-primary" onclick="App._showStmt('income')">Income Statement</button>
                         <button class="btn btn-sm btn-secondary" onclick="App._showStmt('balance')">Balance Sheet</button>
                         <button class="btn btn-sm btn-secondary" onclick="App._showStmt('cashflow')">Cash Flow</button>
@@ -934,7 +1206,7 @@ const App = {
                     <div id="stmt-quarterly" class="hidden">${Tables.financialStatement(fin.quarterly_income, 'Income Statement (Quarterly)', ccy)}</div>
                 </div>`;
 
-            // Price chart section
+            // Price chart section (for Trends tab)
             const detailIndicators = [
                 { id: 'SMA20', label: 'SMA 20' }, { id: 'SMA50', label: 'SMA 50' },
                 { id: 'SMA200', label: 'SMA 200' }, { id: 'EMA12', label: 'EMA 12' },
@@ -952,10 +1224,6 @@ const App = {
                 { v: '1mo', l: '1M' }, { v: '3mo', l: '3M' }, { v: '6mo', l: '6M' },
                 { v: '1y', l: '1Y' }, { v: '2y', l: '2Y' }, { v: '5y', l: '5Y' },
             ].map(p => `<button class="btn btn-sm ${p.v === this._detailPeriod ? 'btn-primary' : 'btn-secondary'} det-period-btn" data-period="${p.v}">${p.l}</button>`).join('');
-
-            // Recommendation box
-            const recs = this._computeRecommendations(fin, trends);
-            const recommendationHtml = this._renderRecommendationBox(recs);
 
             const priceChartHtml = `
                 <div class="card">
@@ -975,28 +1243,56 @@ const App = {
                     <div id="detail-price-chart"><div class="skeleton skeleton-chart"></div></div>
                 </div>`;
 
+            // Recommendation box
+            const recs = this._computeRecommendations(fin, trends);
+            const recommendationHtml = this._renderRecommendationBox(recs);
+
+            // Q1: 4-tab layout
             this.render(`
                 <div class="section-header">
                     <h2>${fin.name || ticker} <span style="color:var(--text-muted);font-weight:400">(${fin.ticker})</span></h2>
-                    <div style="display:flex;gap:8px;align-items:center">
+                    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
                         <span class="badge badge-blue">${fin.sector}</span>
                         <span class="badge badge-purple">${fin.industry}</span>
-                        <button class="btn btn-sm btn-primary" onclick="Router.navigate('#model/${ticker}')">DCF Model</button>
                         <button class="btn btn-sm btn-secondary" id="btn-save-snapshot">Save Data</button>
                         <button class="btn btn-sm btn-secondary" id="btn-detail-screenshot">Screenshot</button>
                     </div>
                 </div>
-                ${priceSummaryHtml}
-                ${recommendationHtml}
-                <div id="score-gauges-container">${scoresHtml}</div>
-                ${priceChartHtml}
-                <div id="tech-signals-container"></div>
-                ${highlightsHtml}
-                ${ratiosHtml}
-                ${anomalyHtml}
-                <div id="industry-card-container"><div class="skeleton skeleton-card" style="height:200px"></div></div>
-                ${trendChartsHtml}
-                ${stmtTabs}
+
+                <div style="display:flex;gap:4px;margin-bottom:16px;flex-wrap:wrap">
+                    <button id="dtab-btn-overview" class="btn btn-sm btn-primary" onclick="App._switchDetailTab('overview')">Overview</button>
+                    <button id="dtab-btn-financials" class="btn btn-sm btn-secondary" onclick="App._switchDetailTab('financials')">Financials</button>
+                    <button id="dtab-btn-trends" class="btn btn-sm btn-secondary" onclick="App._switchDetailTab('trends')">Trends</button>
+                    <button id="dtab-btn-valuation" class="btn btn-sm btn-secondary" onclick="App._switchDetailTab('valuation')">Valuation</button>
+                </div>
+
+                <div id="detail-tab-overview">
+                    ${priceSummaryHtml}
+                    ${recommendationHtml}
+                    <div id="score-gauges-container">${scoresSkeletonHtml}</div>
+                    ${highlightsHtml}
+                    <div id="ratio-cards-container">${ratioCardsHtml}</div>
+                    ${anomalyHtml}
+                </div>
+
+                <div id="detail-tab-financials" class="hidden">
+                    ${stmtTabs}
+                    ${fullRatioHtml}
+                </div>
+
+                <div id="detail-tab-trends" class="hidden">
+                    ${priceChartHtml}
+                    <div id="tech-signals-container"></div>
+                    ${trendChartsHtml}
+                </div>
+
+                <div id="detail-tab-valuation" class="hidden">
+                    <div id="industry-card-container"><div class="skeleton skeleton-card" style="height:200px"></div></div>
+                    <div class="card" style="text-align:center;padding:24px">
+                        <p style="color:var(--text-muted);font-size:0.9em;margin-bottom:12px">Run DCF, PBV, DDM, and ROE Growth models for ${ticker}</p>
+                        <button class="btn btn-primary" onclick="App._pendingModelTicker='${ticker}'; Router.navigate('#model/${ticker}')">Open Valuation Models →</button>
+                    </div>
+                </div>
             `);
 
             // Save snapshot button
@@ -1040,7 +1336,7 @@ const App = {
                 }
             };
 
-            // Load detail price chart
+            // Load detail price chart and industry card
             this._loadDetailChart(ticker);
             this._loadIndustryCard(ticker);
 
@@ -1518,6 +1814,8 @@ const App = {
                 </div>
             </div>
 
+            <div id="valuation-synthesis"><div class="skeleton skeleton-card" style="height:120px;margin-bottom:16px"></div></div>
+
             <div class="grid grid-2">
                 <div class="card">
                     <div class="card-title">DCF Valuation</div>
@@ -1602,6 +1900,9 @@ const App = {
         this._modelResults = {};
         this._setupModelSync();
 
+        // Q5: Load valuation synthesis asynchronously
+        this._loadValuationSynthesis(ticker);
+
         // DCF
         document.getElementById('btn-dcf').onclick = async () => {
             const vals = Forms.readValues('dcf-form');
@@ -1618,6 +1919,8 @@ const App = {
                     },
                 });
                 this._modelResults.dcf = result;
+                // Q8: store current price for sensitivity heat map coloring
+                if (result.current_price != null) this._lastCurrentPrice = result.current_price;
                 if (result.error) {
                     document.getElementById('dcf-results').innerHTML = `<p class="val-negative">${result.error}</p>`;
                 } else {
@@ -1718,7 +2021,7 @@ const App = {
             this.hideLoading();
         };
 
-        // Sensitivity
+        // Sensitivity — Q8: color-coded HTML heat map
         document.getElementById('btn-sensitivity').onclick = async () => {
             this.showLoading();
             try {
@@ -1730,11 +2033,8 @@ const App = {
                 if (result.error) {
                     document.getElementById('sensitivity-results').innerHTML = `<p class="val-negative">${result.error}</p>`;
                 } else {
-                    document.getElementById('sensitivity-results').innerHTML = '<div id="sens-heatmap"></div>';
-                    setTimeout(() => {
-                        Charts.heatmap('sens-heatmap', 'Intrinsic Value / Share',
-                            result.growth_labels, result.wacc_labels, result.matrix);
-                    }, 50);
+                    document.getElementById('sensitivity-results').innerHTML =
+                        this._renderSensitivityHeatmap(result, this._lastCurrentPrice);
                 }
             } catch (e) {
                 document.getElementById('sensitivity-results').innerHTML = `<p class="val-negative">${e.message}</p>`;

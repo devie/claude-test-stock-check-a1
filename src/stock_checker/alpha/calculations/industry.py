@@ -4,6 +4,11 @@
 # List of (industry_key, [sector_keywords], [industry_keywords])
 # Checked in order — first match wins. More-specific entries come first.
 INDUSTRY_MAP = [
+    # Most-specific entries first — prevents broad keywords from grabbing sub-industries
+    ('teknologi', ['technology'], [
+        'software', 'internet', 'fintech', 'e-commerce', 'saas',
+        'semiconductor', 'tech', 'data', 'cloud', 'digital', 'information technology',
+    ]),
     ('logistik_transportasi', ['industrials'], [
         'transport', 'logistic', 'trucking', 'shipping', 'airline', 'freight',
         'delivery', 'courier', 'railroad', 'marine',
@@ -366,6 +371,47 @@ INDUSTRY_CONFIG = {
             },
         },
     },
+    'teknologi': {
+        'label': 'Technology',
+        'icon': '💻',
+        'peers_IDX': ['BUKA.JK', 'GOTO.JK', 'EMTK.JK'],
+        'peers_US':  ['AAPL', 'MSFT', 'GOOGL'],
+        'peer_metrics': ['P/S', 'Gross Margin', 'Revenue Growth'],
+        'valuation_metric': 'PER',
+        'valuation_bands': {'cheap': [0, 20], 'fair': [20, 40], 'expensive': [40, 80]},
+        'thesis': {
+            'bull': {
+                'en': (
+                    'AI and cloud adoption accelerate revenue growth; high gross margins '
+                    'expand as scale increases; platform network effects create durable moats.'
+                ),
+                'id': (
+                    'Adopsi AI dan cloud pacu pertumbuhan revenue; gross margin tinggi '
+                    'melebar seiring skala; efek jaringan platform ciptakan moat yang tahan lama.'
+                ),
+            },
+            'bear': {
+                'en': (
+                    'Regulatory pressure on big tech increases compliance costs; macro slowdown '
+                    'reduces enterprise IT spend; competition compresses SaaS pricing.'
+                ),
+                'id': (
+                    'Tekanan regulasi pada big tech naikkan biaya kepatuhan; perlambatan makro '
+                    'kurangi belanja IT enterprise; kompetisi menekan harga SaaS.'
+                ),
+            },
+            'base': {
+                'en': (
+                    'Revenue grows 15–25% driven by cloud and digital services; '
+                    'gross margin stable above 60%; R&D investment sustains competitive position.'
+                ),
+                'id': (
+                    'Revenue tumbuh 15–25% didorong cloud & layanan digital; '
+                    'gross margin stabil di atas 60%; investasi R&D pertahankan posisi kompetitif.'
+                ),
+            },
+        },
+    },
 }
 
 _UNKNOWN_CONFIG = {
@@ -507,6 +553,7 @@ def calc_specific_ratios(industry_key: str, ratios: dict, highlights: dict,
         'energi_pertambangan': {
             'EV/EBITDA (x)':       ev_ebitda,
             'EBITDA Margin (%)':   ebitda_margin,
+            'Gross Margin (%)':    gpm,
             'Net Debt/EBITDA (x)': nd_ebitda,
             'FCF Yield (%)':       fcf_yield,
             'CapEx/Revenue (%)':   capex_rev,
@@ -545,6 +592,14 @@ def calc_specific_ratios(industry_key: str, ratios: dict, highlights: dict,
             'EBITDA Margin (%)': ebitda_margin,
             'ROE (%)':           roe,
             'Net Margin (%)':    npm,
+        },
+        'teknologi': {
+            'PER (x)':            per,
+            'Gross Margin (%)':   gpm,
+            'EBITDA Margin (%)':  ebitda_margin,
+            'Revenue Growth (%)': rev_growth,
+            'FCF Yield (%)':      fcf_yield,
+            'R&D/Revenue (%)':    None,   # yfinance doesn't expose R&D for most tickers
         },
     }
 

@@ -610,6 +610,205 @@ const App = {
     _detailIndicators: ['SMA20', 'SMA50'],
     _detailPeriod: '1y',
 
+    // ── Industry analysis helpers ────────────────────────────────────────────
+
+    _fmtIndRatio(key, val) {
+        if (val == null) return '<span style="color:var(--text-muted)">N/A</span>';
+        const n = parseFloat(val);
+        if (!isFinite(n)) return '<span style="color:var(--text-muted)">N/A</span>';
+        const neg = n < 0;
+        const absStr = Tables.addSeparator(Math.abs(n).toFixed(2));
+        const formatted = (neg ? '-' : '') + absStr;
+        if (key.includes('(%)')) return `<span style="${neg ? 'color:var(--red)' : ''}">${formatted}%</span>`;
+        if (key.includes('(x)')) return `<span style="${neg ? 'color:var(--red)' : ''}">${formatted}x</span>`;
+        return `<span>${formatted}</span>`;
+    },
+
+    _renderIndustryRatioTable(ratios) {
+        if (!ratios) return '<p style="color:var(--text-muted);font-size:0.85em">N/A</p>';
+        let html = '<table class="data-table"><tbody>';
+        for (const [key, val] of Object.entries(ratios)) {
+            html += `<tr>
+                <td style="color:var(--text-muted);font-size:0.85em">${key}</td>
+                <td style="font-weight:600;text-align:right">${this._fmtIndRatio(key, val)}</td>
+            </tr>`;
+        }
+        return html + '</tbody></table>';
+    },
+
+    _renderValuationBand(val) {
+        if (!val || !val.bands) return '<p style="color:var(--text-muted);font-size:0.85em">N/A</p>';
+        const { metric, current, bands, zone } = val;
+        const cur = current != null ? parseFloat(current) : null;
+        const max = (cur != null && cur > bands.expensive[1]) ? cur * 1.2 : bands.expensive[1];
+        const pct = v => Math.max(0, (v / max) * 100);
+        const cW  = pct(bands.cheap[1] - (bands.cheap[0] || 0)).toFixed(1);
+        const fW  = pct(bands.fair[1]  -  bands.fair[0]).toFixed(1);
+        const eW  = pct(Math.min(bands.expensive[1], max) - bands.expensive[0]).toFixed(1);
+        const ptrL = cur != null ? Math.min(97, Math.max(3, (cur / max) * 100)).toFixed(1) : null;
+        const zoneColor = { cheap: '#4caf50', fair: '#ff9800', expensive: '#f44336', unknown: '#888' }[zone] || '#888';
+        const zoneLabel = { cheap: 'Murah', fair: 'Wajar', expensive: 'Mahal', unknown: '–' }[zone] || zone;
+        const ptrHtml = ptrL != null ? `
+            <div style="position:absolute;left:${ptrL}%;top:0;transform:translateX(-50%);pointer-events:none">
+                <div style="font-size:0.68em;font-weight:700;color:${zoneColor};white-space:nowrap;text-align:center;line-height:1.3">${Tables.addSeparator(cur.toFixed(2))}x</div>
+                <div style="width:2px;height:20px;background:${zoneColor};margin:2px auto 0;border-radius:1px"></div>
+            </div>` : '';
+        return `<div style="font-size:0.78em;color:var(--text-muted);font-weight:600;margin-bottom:6px">${metric} Band</div>
+            <div style="position:relative;padding-top:28px">
+                ${ptrHtml}
+                <div style="display:flex;height:18px;border-radius:3px;overflow:hidden;font-size:0.62em">
+                    <div style="width:${cW}%;background:rgba(76,175,80,0.3);display:flex;align-items:center;justify-content:center;color:#aaa;min-width:0">Murah</div>
+                    <div style="width:${fW}%;background:rgba(255,152,0,0.3);display:flex;align-items:center;justify-content:center;color:#aaa;min-width:0">Wajar</div>
+                    <div style="width:${eW}%;background:rgba(244,67,54,0.25);display:flex;align-items:center;justify-content:center;color:#aaa;min-width:0">Mahal</div>
+                </div>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:0.68em;color:var(--text-muted);margin-top:3px">
+                <span>0</span><span>${bands.cheap[1]}x</span><span>${bands.fair[1]}x</span><span>${parseFloat(max).toFixed(1)}x</span>
+            </div>
+            <div style="margin-top:8px;font-size:0.82em">
+                Zona: <span style="font-weight:700;color:${zoneColor}">${zoneLabel}</span>
+                ${cur != null ? `<span style="color:var(--text-muted)"> (${Tables.addSeparator(cur.toFixed(2))}x)</span>` : ''}
+            </div>`;
+    },
+
+    _renderThesisGrid(thesis) {
+        if (!thesis) return '';
+        const items = [
+            { key: 'bull', label: 'Bull Case', icon: '📈', color: '#4caf50' },
+            { key: 'base', label: 'Base Case', icon: '📊', color: '#2196f3' },
+            { key: 'bear', label: 'Bear Case', icon: '📉', color: '#f44336' },
+        ];
+        return `<div style="font-size:0.82em;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">Investment Thesis</div>
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+                ${items.map(({ key, label, icon, color }) => `
+                    <div style="background:var(--bg-input);border:1px solid var(--border);border-radius:6px;padding:10px;border-top:3px solid ${color}">
+                        <div style="font-size:0.78em;font-weight:700;color:${color};margin-bottom:6px">${icon} ${label}</div>
+                        <div style="font-size:0.78em;color:var(--text-secondary);line-height:1.5">${thesis[key] || '–'}</div>
+                    </div>
+                `).join('')}
+            </div>`;
+    },
+
+    _renderPeerLinks(peers, currentTicker) {
+        if (!peers?.tickers?.length) return '';
+        const { tickers, metrics } = peers;
+        return `<div style="font-size:0.8em;color:var(--text-muted);margin-bottom:6px">Kunci: ${(metrics || []).join(', ')}</div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px">
+                ${tickers.map(t => `
+                    <button class="btn btn-sm btn-secondary" style="font-size:0.78em"
+                        onclick="App._pendingCompareTickers='${currentTicker},${t}';App.navigate('#compare')">
+                        ${t} <span style="opacity:0.6">H2H →</span>
+                    </button>
+                `).join('')}
+            </div>`;
+    },
+
+    _renderIndustryCard(ctx) {
+        if (!ctx || ctx.error) return '';
+        const { icon, label, sector, industry, specific_ratios, valuation, peers, thesis } = ctx;
+        const header = `<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+            <span style="font-size:1.8em;line-height:1">${icon}</span>
+            <div>
+                <div style="font-weight:700;font-size:1.05em">${label}</div>
+                <div style="font-size:0.8em;color:var(--text-muted)">${sector || ''}${industry && industry !== 'N/A' ? ' · ' + industry : ''}</div>
+            </div>
+        </div>`;
+        return `<div class="card">
+            <div class="card-title">Analisis Industri</div>
+            ${header}
+            <div class="grid grid-2" style="gap:16px;margin-bottom:16px">
+                <div>
+                    <div style="font-size:0.82em;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">Rasio Kunci Industri</div>
+                    ${this._renderIndustryRatioTable(specific_ratios)}
+                </div>
+                <div>
+                    <div style="font-size:0.82em;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">Valuation Band</div>
+                    ${this._renderValuationBand(valuation)}
+                    ${peers?.tickers?.length ? `<div style="margin-top:14px">
+                        <div style="font-size:0.82em;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">Peer Comparison</div>
+                        ${this._renderPeerLinks(peers, ctx.ticker)}
+                    </div>` : ''}
+                </div>
+            </div>
+            ${this._renderThesisGrid(thesis)}
+        </div>`;
+    },
+
+    _renderIndustryMini(ctx) {
+        const { icon, label, specific_ratios, valuation, thesis } = ctx;
+        return `<div style="font-size:1.0em;margin-bottom:10px">${icon} <span style="font-weight:700">${label}</span></div>
+            ${this._renderIndustryRatioTable(specific_ratios)}
+            <div style="margin-top:12px">${this._renderValuationBand(valuation)}</div>
+            <div style="margin-top:14px">${this._renderThesisGrid(thesis)}</div>`;
+    },
+
+    _renderH2HIndustry(ctxA, ctxB, tA, tB) {
+        if (!ctxA && !ctxB) return '';
+        const lowerBetterKeys = ['PBV (x)', 'PER (x)', 'EV/EBITDA (x)', 'DER (x)',
+                                  'Net Debt/EBITDA (x)', 'CapEx/Revenue (%)'];
+        const sameIndustry = ctxA && ctxB && ctxA.industry_key === ctxB.industry_key;
+        let html = '<div class="card"><div class="card-title">Analisis Industri</div>';
+        if (sameIndustry) {
+            html += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+                <span style="font-size:1.4em">${ctxA.icon}</span>
+                <span style="font-weight:700">${ctxA.label}</span>
+                <span style="font-size:0.8em;color:var(--text-muted)">${ctxA.sector || ''}</span>
+            </div>`;
+            // Side-by-side ratio comparison table
+            const rA = ctxA.specific_ratios || {};
+            const rB = ctxB.specific_ratios || {};
+            const allKeys = [...new Set([...Object.keys(rA), ...Object.keys(rB)])];
+            html += `<div style="font-size:0.82em;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">Rasio Kunci Industri</div>`;
+            html += `<table class="data-table" style="margin-bottom:16px"><thead><tr><th>Metrik</th><th>${tA}</th><th>${tB}</th><th>Unggul</th></tr></thead><tbody>`;
+            allKeys.forEach(key => {
+                const vA = rA[key] != null ? parseFloat(rA[key]) : null;
+                const vB = rB[key] != null ? parseFloat(rB[key]) : null;
+                const lB = lowerBetterKeys.includes(key);
+                let clsA = '', clsB = '', winner = '—';
+                if (vA != null && vB != null && isFinite(vA) && isFinite(vB) && vA !== vB) {
+                    const aWins = lB ? vA < vB : vA > vB;
+                    clsA = aWins ? 'badge-green' : 'badge-red';
+                    clsB = aWins ? 'badge-red' : 'badge-green';
+                    winner = aWins ? tA : tB;
+                }
+                html += `<tr>
+                    <td style="font-size:0.85em;color:var(--text-muted)">${key}</td>
+                    <td><span class="${clsA ? 'badge ' + clsA : ''}">${this._fmtIndRatio(key, vA)}</span></td>
+                    <td><span class="${clsB ? 'badge ' + clsB : ''}">${this._fmtIndRatio(key, vB)}</span></td>
+                    <td style="font-size:0.8em;color:var(--text-muted)">${winner}</td>
+                </tr>`;
+            });
+            html += '</tbody></table>';
+            // Valuation bands side by side
+            html += `<div style="font-size:0.82em;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">Valuation Band</div>`;
+            html += `<div class="grid grid-2" style="gap:16px;margin-bottom:16px">
+                <div><div style="font-size:0.8em;font-weight:600;color:var(--accent);margin-bottom:6px">${tA}</div>${this._renderValuationBand(ctxA.valuation)}</div>
+                <div><div style="font-size:0.8em;font-weight:600;color:var(--accent);margin-bottom:6px">${tB}</div>${this._renderValuationBand(ctxB.valuation)}</div>
+            </div>`;
+            // Shared thesis
+            html += this._renderThesisGrid(ctxA.thesis);
+        } else {
+            html += `<div class="grid grid-2" style="gap:16px">
+                <div>${ctxA ? this._renderIndustryMini(ctxA) : '<p style="color:var(--text-muted)">N/A</p>'}</div>
+                <div>${ctxB ? this._renderIndustryMini(ctxB) : '<p style="color:var(--text-muted)">N/A</p>'}</div>
+            </div>`;
+        }
+        return html + '</div>';
+    },
+
+    async _loadIndustryCard(ticker) {
+        const el = document.getElementById('industry-card-container');
+        if (!el) return;
+        try {
+            const ctx = await this.api('/api/industry', { method: 'POST', body: { ticker } });
+            const current = document.getElementById('industry-card-container');
+            if (current) current.innerHTML = this._renderIndustryCard(ctx);
+        } catch (_) {
+            const el2 = document.getElementById('industry-card-container');
+            if (el2) el2.innerHTML = '';
+        }
+    },
+
     async renderDetail(ticker) {
         if (!ticker) {
             this.render('<div class="empty-state"><h3>Enter a ticker to analyze</h3></div>');
@@ -787,6 +986,7 @@ const App = {
                 ${highlightsHtml}
                 ${ratiosHtml}
                 ${anomalyHtml}
+                <div id="industry-card-container"><div class="skeleton skeleton-card" style="height:200px"></div></div>
                 ${trendChartsHtml}
                 ${stmtTabs}
             `);
@@ -834,6 +1034,7 @@ const App = {
 
             // Load detail price chart
             this._loadDetailChart(ticker);
+            this._loadIndustryCard(ticker);
 
             // Render trend charts after DOM is ready
             trendMetrics.forEach((m, i) => {
@@ -975,10 +1176,12 @@ const App = {
         this.showLoading();
 
         try {
-            const [compareRes, scoresA, scoresB] = await Promise.all([
+            const [compareRes, scoresA, scoresB, industryA, industryB] = await Promise.all([
                 this.api('/api/compare', { method: 'POST', body: { tickers: [tA, tB], categories: ['valuation', 'profitability', 'risk', 'market'] } }),
                 this.api('/api/scores', { method: 'POST', body: { ticker: tA } }),
                 this.api('/api/scores', { method: 'POST', body: { ticker: tB } }),
+                this.api('/api/industry', { method: 'POST', body: { ticker: tA } }).catch(() => null),
+                this.api('/api/industry', { method: 'POST', body: { ticker: tB } }).catch(() => null),
             ]);
 
             const _ratioSignal = (metric, vA, vB) => {
@@ -1067,7 +1270,8 @@ const App = {
                 <ul style="list-style:none;padding:0;margin:0">${verdictLines.map(l => `<li style="font-size:0.85em;color:var(--text-secondary);padding:3px 0;border-bottom:1px solid var(--border)">▸ ${l}</li>`).join('')}</ul>
             </div>`;
 
-            resultsDiv.innerHTML = verdictHtml + scoreCard + metricsHtml;
+            const industryHtml = this._renderH2HIndustry(industryA, industryB, tA, tB);
+            resultsDiv.innerHTML = verdictHtml + scoreCard + metricsHtml + industryHtml;
         } catch (e) {
             resultsDiv.innerHTML = `<div class="card"><p class="val-negative">Error: ${e.message}</p></div>`;
         }

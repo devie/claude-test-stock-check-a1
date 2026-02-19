@@ -2,7 +2,8 @@
 
 from flask import Blueprint, request, jsonify
 from stock_checker.alpha.services.modelling import (
-    run_dcf, run_scenario, run_sensitivity, run_projection
+    run_dcf, run_scenario, run_sensitivity, run_projection,
+    run_pbv, run_ddm, run_roe_model,
 )
 
 bp = Blueprint("alpha_modelling", __name__)
@@ -81,6 +82,59 @@ def projection():
             ticker,
             metric=data.get("metric", "Total Revenue"),
             periods_ahead=data.get("periods_ahead", 4),
+        )
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@bp.route("/api/model/pbv", methods=["POST"])
+def pbv():
+    data = request.get_json()
+    ticker = data.get("ticker", "").strip().upper()
+    if not ticker:
+        return jsonify({"error": "Ticker is required"}), 400
+
+    try:
+        result = run_pbv(
+            ticker,
+            cost_of_equity=data.get("cost_of_equity", 0.10),
+            terminal_growth=data.get("terminal_growth", 0.05),
+        )
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@bp.route("/api/model/ddm", methods=["POST"])
+def ddm():
+    data = request.get_json()
+    ticker = data.get("ticker", "").strip().upper()
+    if not ticker:
+        return jsonify({"error": "Ticker is required"}), 400
+
+    try:
+        result = run_ddm(
+            ticker,
+            growth_rate=data.get("growth_rate", 0.05),
+            cost_of_equity=data.get("cost_of_equity", 0.10),
+        )
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@bp.route("/api/model/roe", methods=["POST"])
+def roe_model():
+    data = request.get_json()
+    ticker = data.get("ticker", "").strip().upper()
+    if not ticker:
+        return jsonify({"error": "Ticker is required"}), 400
+
+    try:
+        result = run_roe_model(
+            ticker,
+            cost_of_equity=data.get("cost_of_equity", 0.10),
         )
         return jsonify(result)
     except Exception as e:

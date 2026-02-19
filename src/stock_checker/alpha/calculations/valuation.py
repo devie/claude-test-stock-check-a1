@@ -112,6 +112,114 @@ def calc_sensitivity(fcf_base, wacc_range, growth_range, terminal_growth,
     }
 
 
+def calc_pbv(roe, book_value_per_share, cost_of_equity=0.10, terminal_growth=0.05):
+    """PBV (Justified Price-to-Book) valuation model. Best for banks/financials.
+
+    justified_pbv = (ROE - g) / (COE - g)
+    intrinsic     = justified_pbv * book_value_per_share
+
+    Args:
+        roe: Return on Equity as decimal (e.g. 0.18 for 18%)
+        book_value_per_share: Book value per share (currency units)
+        cost_of_equity: Cost of equity as decimal (default 10%)
+        terminal_growth: Terminal growth rate as decimal (default 5%)
+
+    Returns:
+        dict with justified_pbv and intrinsic_per_share
+    """
+    if roe is None or book_value_per_share is None:
+        return {"error": "ROE and book value per share are required"}
+    if cost_of_equity <= terminal_growth:
+        return {"error": "Cost of equity must be greater than terminal growth rate"}
+    if book_value_per_share <= 0:
+        return {"error": "Book value per share must be positive"}
+
+    justified_pbv = (roe - terminal_growth) / (cost_of_equity - terminal_growth)
+    intrinsic = justified_pbv * book_value_per_share
+
+    return {
+        "justified_pbv": round(justified_pbv, 4),
+        "intrinsic_per_share": round(intrinsic, 2),
+        "roe_used": round(roe * 100, 2),
+        "cost_of_equity": round(cost_of_equity * 100, 2),
+        "terminal_growth": round(terminal_growth * 100, 2),
+        "book_value_per_share": round(book_value_per_share, 2),
+    }
+
+
+def calc_ddm(last_dividend, growth_rate=0.05, cost_of_equity=0.10):
+    """Gordon Growth Model / Dividend Discount Model (DDM).
+
+    D1 = last_dividend * (1 + g)
+    intrinsic = D1 / (COE - g)
+
+    Args:
+        last_dividend: Most recent annual dividend per share
+        growth_rate: Expected dividend growth rate (decimal)
+        cost_of_equity: Required rate of return (decimal)
+
+    Returns:
+        dict with D1 and intrinsic_per_share, or error if no dividend
+    """
+    if last_dividend is None or last_dividend <= 0:
+        return {"error": "This stock does not pay dividends — DDM not applicable"}
+    if cost_of_equity <= growth_rate:
+        return {"error": "Cost of equity must be greater than growth rate"}
+
+    d1 = last_dividend * (1 + growth_rate)
+    intrinsic = d1 / (cost_of_equity - growth_rate)
+
+    return {
+        "last_dividend": round(last_dividend, 4),
+        "d1": round(d1, 4),
+        "intrinsic_per_share": round(intrinsic, 2),
+        "growth_rate": round(growth_rate * 100, 2),
+        "cost_of_equity": round(cost_of_equity * 100, 2),
+    }
+
+
+def calc_roe_sustainable_growth(roe, payout_ratio, eps, cost_of_equity=0.10):
+    """ROE Sustainable Growth Model.
+
+    sustainable_g      = ROE * retention_ratio
+    retention_ratio    = 1 - payout_ratio
+    intrinsic_per_share = EPS * (1 + g) / (COE - g)
+
+    Args:
+        roe: Return on Equity as decimal
+        payout_ratio: Dividend payout ratio as decimal (0-1)
+        eps: Earnings per share (currency units)
+        cost_of_equity: Required rate of return (decimal)
+
+    Returns:
+        dict with sustainable_g, retention_ratio, and intrinsic_per_share
+    """
+    if roe is None or eps is None:
+        return {"error": "ROE and EPS are required"}
+    if payout_ratio is None:
+        payout_ratio = 0.0
+    if not (0 <= payout_ratio <= 1):
+        payout_ratio = max(0.0, min(1.0, payout_ratio))
+
+    retention_ratio = 1 - payout_ratio
+    sustainable_g = roe * retention_ratio
+
+    if cost_of_equity <= sustainable_g:
+        return {"error": f"Sustainable growth ({sustainable_g*100:.1f}%) >= cost of equity — model not valid"}
+
+    intrinsic = eps * (1 + sustainable_g) / (cost_of_equity - sustainable_g)
+
+    return {
+        "sustainable_g": round(sustainable_g * 100, 2),
+        "retention_ratio": round(retention_ratio * 100, 2),
+        "payout_ratio": round(payout_ratio * 100, 2),
+        "roe_used": round(roe * 100, 2),
+        "eps": round(eps, 4),
+        "intrinsic_per_share": round(intrinsic, 2),
+        "cost_of_equity": round(cost_of_equity * 100, 2),
+    }
+
+
 def calc_linear_projection(values, periods_ahead=4):
     """Simple linear regression projection with confidence bands.
 

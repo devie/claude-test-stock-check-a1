@@ -17,7 +17,7 @@ def create_alpha_blueprint():
 
     # Import and register route modules
     from stock_checker.alpha.routes import dashboard, comparison, financials
-    from stock_checker.alpha.routes import trends, modelling, portfolio, export
+    from stock_checker.alpha.routes import trends, modelling, portfolio, export, scores
 
     alpha_bp.register_blueprint(dashboard.bp)
     alpha_bp.register_blueprint(comparison.bp)
@@ -26,6 +26,7 @@ def create_alpha_blueprint():
     alpha_bp.register_blueprint(modelling.bp)
     alpha_bp.register_blueprint(portfolio.bp)
     alpha_bp.register_blueprint(export.bp)
+    alpha_bp.register_blueprint(scores.bp)
 
     # Error handlers for the blueprint
     @alpha_bp.errorhandler(404)

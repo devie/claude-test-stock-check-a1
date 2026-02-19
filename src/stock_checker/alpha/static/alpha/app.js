@@ -91,7 +91,7 @@ const App = {
         { symbol: '^GDAXI', label: 'DAX' },
     ],
     _dashboardIndicators: ['SMA20', 'SMA50'],
-    _dashboardTicker: 'BBCA.JK',
+    _dashboardTicker: '^JKSE',
     _dashboardPeriod: '1y',
 
     async renderDashboard() {
@@ -100,15 +100,21 @@ const App = {
         try {
             const watchlists = await this.api('/api/watchlists');
             if (watchlists.length > 0) {
-                watchlistsHtml = watchlists.map(w => `
+                watchlistsHtml = watchlists.map(w => {
+                    const tickerList = (w.items || []).map(i => i.ticker).filter(Boolean);
+                    const compareLink = tickerList.length >= 2
+                        ? `<button class="btn btn-sm btn-secondary" style="margin-top:8px" onclick="event.stopPropagation();App._compareWatchlist('${tickerList.join(',')}')">Compare All</button>`
+                        : '';
+                    return `
                     <div class="card" style="cursor:pointer" onclick="Router.navigate('#watchlists')">
                         <div class="card-title">${w.name}</div>
                         <p style="color:var(--text-secondary);font-size:0.9em">${w.description || 'No description'}</p>
                         <div class="ticker-chips">
-                            ${w.items.map(i => `<span class="ticker-chip" onclick="event.stopPropagation();Router.navigate('#detail/${i.ticker}')">${i.ticker}</span>`).join('')}
+                            ${tickerList.map(t => `<span class="ticker-chip" onclick="event.stopPropagation();Router.navigate('#detail/${t}')">${t}</span>`).join('')}
                         </div>
-                    </div>
-                `).join('');
+                        ${compareLink}
+                    </div>`;
+                }).join('');
             } else {
                 watchlistsHtml = '<div class="empty-state"><p>No watchlists yet. Create one from the Watchlists page.</p></div>';
             }
@@ -296,7 +302,7 @@ const App = {
                 chartDiv.innerHTML = `<p class="val-negative">${data.error}</p>`;
                 return;
             }
-            chartDiv.innerHTML = '<div id="dash-chart-container"></div>';
+            chartDiv.innerHTML = this._buildPriceStatsBar(data) + '<div id="dash-chart-container"></div>';
             Charts.priceChart('dash-chart-container', data, data.indicators || {});
         } catch (e) {
             chartDiv.innerHTML = `<p class="val-negative">Error: ${e.message}</p>`;
@@ -394,6 +400,180 @@ const App = {
         </div>`;
     },
 
+    _renderScoreGauges(scores) {
+        const recColors = {
+            'Strong Buy': '#4caf50',
+            'Buy': '#8bc34a',
+            'Hold': '#ff9800',
+            'Avoid': '#f44336',
+        };
+        const recBadgeClass = {
+            'Strong Buy': 'badge-green',
+            'Buy': 'badge-green',
+            'Hold': 'badge-orange',
+            'Avoid': 'badge-red',
+        };
+
+        const gauge = (label, score, color) => {
+            if (score == null) return `<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:0.85em;color:var(--text-secondary)">${label}</span><span style="font-size:0.85em;color:var(--text-muted)">N/A</span></div><div style="height:8px;background:var(--bg-input);border-radius:4px"></div></div>`;
+            const pct = Math.max(0, Math.min(100, score));
+            return `<div style="margin-bottom:12px">
+                <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                    <span style="font-size:0.85em;color:var(--text-secondary)">${label}</span>
+                    <span style="font-size:0.85em;font-weight:700;color:${color}">${pct.toFixed(1)}</span>
+                </div>
+                <div style="height:8px;background:var(--bg-input);border-radius:4px;overflow:hidden">
+                    <div style="height:100%;width:${pct}%;background:${color};border-radius:4px;transition:width 0.6s ease"></div>
+                </div>
+            </div>`;
+        };
+
+        const rec = scores.recommendation;
+        const recHtml = rec
+            ? `<div style="text-align:center;margin-bottom:16px"><span class="badge ${recBadgeClass[rec] || 'badge-blue'}" style="font-size:1.1em;padding:5px 18px">${rec}</span></div>`
+            : '';
+
+        const qColor = (s) => s == null ? '#888' : s >= 70 ? '#4caf50' : s >= 50 ? '#ff9800' : '#f44336';
+
+        return `<div class="card">
+            <div class="card-title">Composite Scores</div>
+            ${recHtml}
+            ${gauge('Quality', scores.quality_score, qColor(scores.quality_score))}
+            ${gauge('Valuation', scores.valuation_score, qColor(scores.valuation_score))}
+            ${gauge('Risk', scores.risk_score, qColor(scores.risk_score))}
+            ${scores.composite_score != null ? `<div style="padding-top:8px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center"><span style="font-size:0.85em;color:var(--text-secondary)">Composite</span><span style="font-weight:700;font-size:1.1em;color:${qColor(scores.composite_score)}">${scores.composite_score.toFixed(1)} / 100</span></div>` : ''}
+        </div>`;
+    },
+
+    _renderTechSignals(data) {
+        if (!data || !data.indicators) return '';
+
+        const ind = data.indicators;
+        const prices = data.prices || [];
+        if (prices.length === 0) return '';
+
+        const lastClose = prices[prices.length - 1]?.close ?? null;
+
+        const getLastVal = (arr) => {
+            if (!arr || arr.length === 0) return null;
+            const v = arr[arr.length - 1];
+            return (v == null || isNaN(v)) ? null : v;
+        };
+
+        const rsi = getLastVal(ind.RSI14);
+        const macd = getLastVal(ind.MACD);
+        const macdSignal = getLastVal(ind.MACD_signal);
+        const sma20 = getLastVal(ind.SMA20);
+        const sma50 = getLastVal(ind.SMA50);
+        const sma200 = getLastVal(ind.SMA200);
+
+        const signals = [];
+
+        // RSI
+        if (rsi != null) {
+            let s, cls;
+            if (rsi < 30) { s = 'Oversold — potential buy signal'; cls = 'badge-green'; }
+            else if (rsi > 70) { s = 'Overbought — potential sell signal'; cls = 'badge-red'; }
+            else { s = 'Neutral zone'; cls = 'badge-blue'; }
+            signals.push({ label: `RSI (${rsi.toFixed(1)})`, signal: s, cls });
+        }
+
+        // MACD
+        if (macd != null && macdSignal != null) {
+            const s = macd > macdSignal ? 'Bullish — MACD above signal' : 'Bearish — MACD below signal';
+            const cls = macd > macdSignal ? 'badge-green' : 'badge-red';
+            signals.push({ label: `MACD (${macd.toFixed(2)})`, signal: s, cls });
+        }
+
+        // SMA20 vs SMA50
+        if (lastClose != null && sma20 != null && sma50 != null) {
+            let s, cls;
+            if (lastClose > sma20 && lastClose > sma50) { s = 'Uptrend — price above SMA20 & SMA50'; cls = 'badge-green'; }
+            else if (lastClose < sma20 && lastClose < sma50) { s = 'Downtrend — price below SMA20 & SMA50'; cls = 'badge-red'; }
+            else { s = 'Mixed — between moving averages'; cls = 'badge-orange'; }
+            signals.push({ label: 'SMA20 vs SMA50', signal: s, cls });
+        }
+
+        // Golden / Death Cross (SMA50 vs SMA200)
+        if (sma50 != null && sma200 != null) {
+            const s = sma50 > sma200 ? 'Golden Cross — SMA50 above SMA200 (bullish)' : 'Death Cross — SMA50 below SMA200 (bearish)';
+            const cls = sma50 > sma200 ? 'badge-green' : 'badge-red';
+            signals.push({ label: 'SMA50 vs SMA200', signal: s, cls });
+        }
+
+        if (signals.length === 0) return '';
+
+        return `<div class="card"><div class="card-title">Technical Signals</div>
+            <table class="data-table"><tbody>
+                ${signals.map(s => `<tr><td style="font-size:0.85em;color:var(--text-muted);white-space:nowrap">${s.label}</td><td><span class="badge ${s.cls}" style="font-size:0.8em">${s.signal}</span></td></tr>`).join('')}
+            </tbody></table>
+            <p style="color:var(--text-muted);font-size:0.72em;margin-top:8px;font-style:italic">Based on latest available price data. Not investment advice.</p>
+        </div>`;
+    },
+
+    /** Simple markdown → HTML renderer (no external deps) */
+    _md(raw) {
+        if (!raw) return '';
+        const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        const inline = s => esc(s)
+            .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+            .replace(/\*(.+?)\*/g, '<em>$1</em>')
+            .replace(/`(.+?)`/g, '<code style="background:rgba(255,255,255,0.1);padding:1px 5px;border-radius:3px;font-family:monospace;font-size:0.9em">$1</code>')
+            .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" target="_blank" rel="noopener" style="color:var(--accent)">$1</a>');
+        const lines = raw.split('\n');
+        const parts = [];
+        let inUl = false, inOl = false;
+        const closeList = () => {
+            if (inUl) { parts.push('</ul>'); inUl = false; }
+            if (inOl) { parts.push('</ol>'); inOl = false; }
+        };
+        lines.forEach(line => {
+            if (/^### /.test(line))      { closeList(); parts.push(`<h5 style="margin:10px 0 4px;color:var(--text-primary);font-size:0.95em">${inline(line.slice(4))}</h5>`); }
+            else if (/^## /.test(line))  { closeList(); parts.push(`<h4 style="margin:12px 0 5px;color:var(--text-primary)">${inline(line.slice(3))}</h4>`); }
+            else if (/^# /.test(line))   { closeList(); parts.push(`<h3 style="margin:14px 0 6px;color:var(--text-primary)">${inline(line.slice(2))}</h3>`); }
+            else if (/^---+$/.test(line.trim())) { closeList(); parts.push('<hr style="border:none;border-top:1px solid var(--border);margin:10px 0">'); }
+            else if (/^> /.test(line))   { closeList(); parts.push(`<blockquote style="border-left:3px solid var(--accent);margin:5px 0;padding:4px 10px;color:var(--text-secondary);background:rgba(255,255,255,0.03);border-radius:0 4px 4px 0">${inline(line.slice(2))}</blockquote>`); }
+            else if (/^[-*+] /.test(line)) {
+                if (!inUl) { closeList(); parts.push('<ul style="margin:5px 0;padding-left:18px">'); inUl = true; }
+                parts.push(`<li style="margin:2px 0;color:var(--text-secondary)">${inline(line.slice(2))}</li>`);
+            }
+            else if (/^\d+\. /.test(line)) {
+                if (!inOl) { closeList(); parts.push('<ol style="margin:5px 0;padding-left:18px">'); inOl = true; }
+                parts.push(`<li style="margin:2px 0;color:var(--text-secondary)">${inline(line.replace(/^\d+\. /,''))}</li>`);
+            }
+            else if (line.trim() === '') { closeList(); parts.push('<div style="height:6px"></div>'); }
+            else { closeList(); parts.push(`<p style="margin:3px 0;color:var(--text-secondary)">${inline(line)}</p>`); }
+        });
+        closeList();
+        return parts.join('');
+    },
+
+    /** Price stats bar: last date, last close, day change, refresh time */
+    _buildPriceStatsBar(data) {
+        const prices = data.close || [];
+        const dates  = data.dates  || [];
+        if (prices.length === 0) return '';
+        const lastClose = prices[prices.length - 1];
+        const prevClose = prices.length > 1 ? prices[prices.length - 2] : null;
+        const lastDate  = dates[dates.length - 1] || '';
+        const change    = (lastClose != null && prevClose != null) ? lastClose - prevClose : null;
+        const changePct = (change != null && prevClose) ? change / prevClose * 100 : null;
+        const fmtP = p  => p != null ? Tables.addSeparator(p.toFixed(2)) : 'N/A';
+        const changeHtml = change != null
+            ? `<span class="${change >= 0 ? 'val-positive' : 'val-negative'}" style="font-size:0.95em">${change >= 0 ? '+' : ''}${fmtP(change)} (${changePct >= 0 ? '+' : ''}${changePct.toFixed(2)}%)</span>`
+            : '';
+        const now = new Date();
+        const timeStr = now.toLocaleTimeString('id-ID', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 10px;background:var(--bg-input);border-radius:var(--radius);margin-bottom:6px;font-size:0.82em;flex-wrap:wrap;gap:4px">
+            <div style="display:flex;gap:14px;align-items:center">
+                <span style="color:var(--text-muted)">${lastDate}</span>
+                <span style="font-weight:700;font-size:1.05em;color:var(--text-primary)">${fmtP(lastClose)}</span>
+                ${changeHtml}
+            </div>
+            <span style="color:var(--text-muted);font-size:0.9em">Diperbarui ${timeStr}</span>
+        </div>`;
+    },
+
     async _loadDetailChart(ticker) {
         if (!ticker) return;
         const chartDiv = document.getElementById('detail-price-chart');
@@ -413,8 +593,14 @@ const App = {
                 chartDiv.innerHTML = `<p class="val-negative">${data.error}</p>`;
                 return;
             }
-            chartDiv.innerHTML = '<div id="detail-chart-container"></div>';
+            chartDiv.innerHTML = this._buildPriceStatsBar(data) + '<div id="detail-chart-container"></div>';
             Charts.priceChart('detail-chart-container', data, data.indicators || {});
+
+            // Populate technical signals card
+            const sigDiv = document.getElementById('tech-signals-container');
+            if (sigDiv) {
+                sigDiv.innerHTML = this._renderTechSignals(data);
+            }
         } catch (e) {
             chartDiv.innerHTML = `<p class="val-negative">Error: ${e.message}</p>`;
         }
@@ -436,6 +622,16 @@ const App = {
                 this.api('/api/financials', { method: 'POST', body: { ticker } }),
                 this.api('/api/trends', { method: 'POST', body: { ticker } }),
             ]);
+
+            // Fetch scores async (non-blocking — fills in after main render)
+            let scoresHtml = '<div class="card"><div class="card-title">Composite Scores</div><div class="skeleton skeleton-card" style="height:80px"></div></div>';
+            this.api('/api/scores', { method: 'POST', body: { ticker } }).then(sc => {
+                const el = document.getElementById('score-gauges-container');
+                if (el) el.innerHTML = this._renderScoreGauges(sc);
+            }).catch(() => {
+                const el = document.getElementById('score-gauges-container');
+                if (el) el.innerHTML = '';
+            });
 
             const fv = Tables.formatValue;
             const ps = fin.price_summary || {};
@@ -585,7 +781,9 @@ const App = {
                 </div>
                 ${priceSummaryHtml}
                 ${recommendationHtml}
+                <div id="score-gauges-container">${scoresHtml}</div>
                 ${priceChartHtml}
+                <div id="tech-signals-container"></div>
                 ${highlightsHtml}
                 ${ratiosHtml}
                 ${anomalyHtml}
@@ -675,6 +873,14 @@ const App = {
     // --- Compare ---
     _lastCompareResult: null,
 
+    _compareMode: 'multi',
+    _pendingCompareTickers: null,
+
+    _compareWatchlist(tickersCsv) {
+        this._pendingCompareTickers = tickersCsv;
+        Router.navigate('#compare');
+    },
+
     async renderCompare() {
         const presets = {
             'IDX Banks': 'BBCA.JK, BBRI.JK, BMRI.JK, BBNI.JK',
@@ -691,33 +897,169 @@ const App = {
                 <h2>Compare Tickers</h2>
                 <button class="btn btn-sm btn-secondary" onclick="App.screenshotToClipboard()">Screenshot</button>
             </div>
-            <div class="card">
-                <div class="form-group">
-                    <label>Tickers (comma-separated, max 8)</label>
-                    <input type="text" id="compare-tickers" placeholder="BBCA.JK, BBRI.JK, BMRI.JK" />
-                </div>
-                <div style="margin-bottom:12px">
-                    <span style="color:var(--text-muted);font-size:0.8em">Quick presets:</span>
-                    <div class="ticker-chips">${presetButtons}</div>
-                </div>
-                <div class="form-group">
-                    <label>Categories</label>
-                    <div style="display:flex;gap:8px;flex-wrap:wrap">
-                        <label style="font-size:0.85em;cursor:pointer"><input type="checkbox" class="cat-check" value="valuation" checked> Valuation</label>
-                        <label style="font-size:0.85em;cursor:pointer"><input type="checkbox" class="cat-check" value="profitability" checked> Profitability</label>
-                        <label style="font-size:0.85em;cursor:pointer"><input type="checkbox" class="cat-check" value="risk" checked> Risk</label>
-                        <label style="font-size:0.85em;cursor:pointer"><input type="checkbox" class="cat-check" value="market" checked> Market</label>
-                    </div>
-                </div>
-                <button class="btn btn-primary" id="btn-compare">Compare</button>
+            <div style="display:flex;gap:4px;margin-bottom:16px">
+                <button class="btn btn-sm ${this._compareMode === 'multi' ? 'btn-primary' : 'btn-secondary'}" id="tab-multi" onclick="App._switchCompareTab('multi')">Multi Compare</button>
+                <button class="btn btn-sm ${this._compareMode === 'h2h' ? 'btn-primary' : 'btn-secondary'}" id="tab-h2h" onclick="App._switchCompareTab('h2h')">Head to Head</button>
             </div>
-            <div id="compare-results"></div>
+            <div id="compare-tab-multi" ${this._compareMode !== 'multi' ? 'class="hidden"' : ''}>
+                <div class="card">
+                    <div class="form-group">
+                        <label>Tickers (comma-separated, max 8)</label>
+                        <input type="text" id="compare-tickers" placeholder="BBCA.JK, BBRI.JK, BMRI.JK" />
+                    </div>
+                    <div style="margin-bottom:12px">
+                        <span style="color:var(--text-muted);font-size:0.8em">Quick presets:</span>
+                        <div class="ticker-chips">${presetButtons}</div>
+                    </div>
+                    <div class="form-group">
+                        <label>Categories</label>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap">
+                            <label style="font-size:0.85em;cursor:pointer"><input type="checkbox" class="cat-check" value="valuation" checked> Valuation</label>
+                            <label style="font-size:0.85em;cursor:pointer"><input type="checkbox" class="cat-check" value="profitability" checked> Profitability</label>
+                            <label style="font-size:0.85em;cursor:pointer"><input type="checkbox" class="cat-check" value="risk" checked> Risk</label>
+                            <label style="font-size:0.85em;cursor:pointer"><input type="checkbox" class="cat-check" value="market" checked> Market</label>
+                        </div>
+                    </div>
+                    <button class="btn btn-primary" id="btn-compare">Compare</button>
+                </div>
+                <div id="compare-results"></div>
+            </div>
+            <div id="compare-tab-h2h" ${this._compareMode !== 'h2h' ? 'class="hidden"' : ''}>
+                <div class="card">
+                    <div class="grid grid-2" style="gap:12px;margin-bottom:12px">
+                        <div class="form-group" style="margin:0">
+                            <label>Ticker A</label>
+                            <input type="text" id="h2h-ticker-a" placeholder="BBCA.JK" />
+                        </div>
+                        <div class="form-group" style="margin:0">
+                            <label>Ticker B</label>
+                            <input type="text" id="h2h-ticker-b" placeholder="BBRI.JK" />
+                        </div>
+                    </div>
+                    <button class="btn btn-primary" id="btn-h2h">Compare Head to Head</button>
+                </div>
+                <div id="h2h-results"></div>
+            </div>
         `);
 
         document.getElementById('btn-compare').onclick = () => this._runCompare();
         document.getElementById('compare-tickers').addEventListener('keydown', e => {
             if (e.key === 'Enter') this._runCompare();
         });
+        document.getElementById('btn-h2h').onclick = () => this._runH2H();
+
+        // Auto-fill + run compare if triggered from watchlist
+        if (this._pendingCompareTickers) {
+            const pending = this._pendingCompareTickers;
+            this._pendingCompareTickers = null;
+            document.getElementById('compare-tickers').value = pending.replace(/,/g, ', ');
+            setTimeout(() => this._runCompare(), 50);
+        }
+    },
+
+    _switchCompareTab(mode) {
+        this._compareMode = mode;
+        document.getElementById('compare-tab-multi').classList.toggle('hidden', mode !== 'multi');
+        document.getElementById('compare-tab-h2h').classList.toggle('hidden', mode !== 'h2h');
+        document.getElementById('tab-multi').className = `btn btn-sm ${mode === 'multi' ? 'btn-primary' : 'btn-secondary'}`;
+        document.getElementById('tab-h2h').className = `btn btn-sm ${mode === 'h2h' ? 'btn-primary' : 'btn-secondary'}`;
+    },
+
+    async _runH2H() {
+        const tA = (document.getElementById('h2h-ticker-a')?.value || '').trim().toUpperCase();
+        const tB = (document.getElementById('h2h-ticker-b')?.value || '').trim().toUpperCase();
+        if (!tA || !tB) { this.toast('Enter two tickers', 'error'); return; }
+
+        const resultsDiv = document.getElementById('h2h-results');
+        resultsDiv.innerHTML = '<div class="skeleton skeleton-card"></div>';
+        this.showLoading();
+
+        try {
+            const [compareRes, scoresA, scoresB] = await Promise.all([
+                this.api('/api/compare', { method: 'POST', body: { tickers: [tA, tB], categories: ['valuation', 'profitability', 'risk', 'market'] } }),
+                this.api('/api/scores', { method: 'POST', body: { ticker: tA } }),
+                this.api('/api/scores', { method: 'POST', body: { ticker: tB } }),
+            ]);
+
+            const _ratioSignal = (metric, vA, vB) => {
+                const lowerBetter = ['PER', 'PBV', 'EV/EBITDA', 'PEG', 'DER', 'Beta'].includes(metric);
+                if (vA == null || vB == null || !isFinite(vA) || !isFinite(vB)) return ['', ''];
+                if (vA === vB) return ['', ''];
+                const aWins = lowerBetter ? vA < vB : vA > vB;
+                return aWins ? ['badge-green', 'badge-red'] : ['badge-red', 'badge-green'];
+            };
+
+            // Score gauges side by side
+            const gaugeRow = (label, sA, sB) => {
+                const fmt = (s) => s != null ? s.toFixed(1) : 'N/A';
+                const colorFor = (s) => s == null ? '#888' : s >= 70 ? '#4caf50' : s >= 50 ? '#ff9800' : '#f44336';
+                const bar = (s, c) => `<div style="height:6px;background:var(--bg-input);border-radius:3px;overflow:hidden;margin-top:3px"><div style="height:100%;width:${s == null ? 0 : Math.max(0,Math.min(100,s))}%;background:${c};border-radius:3px"></div></div>`;
+                const cA = colorFor(sA), cB = colorFor(sB);
+                return `<tr>
+                    <td style="font-size:0.82em;color:var(--text-muted)">${label}</td>
+                    <td><span style="font-weight:700;color:${cA}">${fmt(sA)}</span>${bar(sA, cA)}</td>
+                    <td><span style="font-weight:700;color:${cB}">${fmt(sB)}</span>${bar(sB, cB)}</td>
+                </tr>`;
+            };
+
+            const recBadge = (rec) => {
+                if (!rec) return 'N/A';
+                const cls = { 'Strong Buy': 'badge-green', 'Buy': 'badge-green', 'Hold': 'badge-orange', 'Avoid': 'badge-red' }[rec] || 'badge-blue';
+                return `<span class="badge ${cls}">${rec}</span>`;
+            };
+
+            const scoreCard = `<div class="card">
+                <div class="card-title">Score Comparison</div>
+                <table class="data-table"><thead><tr><th></th><th>${tA}</th><th>${tB}</th></tr></thead><tbody>
+                    <tr><td style="font-size:0.82em;color:var(--text-muted)">Recommendation</td><td>${recBadge(scoresA.recommendation)}</td><td>${recBadge(scoresB.recommendation)}</td></tr>
+                    ${gaugeRow('Quality', scoresA.quality_score, scoresB.quality_score)}
+                    ${gaugeRow('Valuation', scoresA.valuation_score, scoresB.valuation_score)}
+                    ${gaugeRow('Risk', scoresA.risk_score, scoresB.risk_score)}
+                    ${gaugeRow('Composite', scoresA.composite_score, scoresB.composite_score)}
+                </tbody></table>
+            </div>`;
+
+            // Metrics comparison table
+            const metricsHtml = '<div class="card">' + (() => {
+                let html = `<table class="data-table"><thead><tr><th>Metric</th><th>${tA}</th><th>${tB}</th><th>Winner</th></tr></thead><tbody>`;
+                compareRes.metrics.forEach(m => {
+                    const dA = compareRes.data[tA]?.metrics?.[m];
+                    const dB = compareRes.data[tB]?.metrics?.[m];
+                    const fmt = (v) => v != null && isFinite(v) ? v.toFixed(2) : 'N/A';
+                    const [clsA, clsB] = _ratioSignal(m, dA, dB);
+                    const winner = clsA === 'badge-green' ? tA : clsB === 'badge-green' ? tB : '—';
+                    html += `<tr><td>${m}</td><td><span class="${clsA ? 'badge ' + clsA : ''}">${fmt(dA)}</span></td><td><span class="${clsB ? 'badge ' + clsB : ''}">${fmt(dB)}</span></td><td style="font-size:0.8em;color:var(--text-muted)">${winner}</td></tr>`;
+                });
+                html += '</tbody></table>';
+                return html;
+            })() + '</div>';
+
+            // Verdict
+            const scoreWinner = (sA, sB, label) => {
+                if (sA == null && sB == null) return null;
+                if (sA == null) return `${tB} leads on ${label}`;
+                if (sB == null) return `${tA} leads on ${label}`;
+                if (sA > sB) return `${tA} leads on ${label} (${sA.toFixed(1)} vs ${sB.toFixed(1)})`;
+                if (sB > sA) return `${tB} leads on ${label} (${sB.toFixed(1)} vs ${sA.toFixed(1)})`;
+                return `Tied on ${label}`;
+            };
+            const verdictLines = [
+                scoreWinner(scoresA.quality_score, scoresB.quality_score, 'Quality'),
+                scoreWinner(scoresA.valuation_score, scoresB.valuation_score, 'Valuation'),
+                scoreWinner(scoresA.risk_score, scoresB.risk_score, 'Risk'),
+            ].filter(Boolean);
+            const overallWinner = (scoresA.composite_score ?? 0) > (scoresB.composite_score ?? 0) ? tA : tB;
+            const verdictHtml = `<div class="card" style="border-left:3px solid var(--accent)">
+                <div class="card-title">H2H Verdict</div>
+                <p style="font-size:0.9em;color:var(--text-secondary);margin-bottom:8px"><b>${overallWinner}</b> wins overall on composite score.</p>
+                <ul style="list-style:none;padding:0;margin:0">${verdictLines.map(l => `<li style="font-size:0.85em;color:var(--text-secondary);padding:3px 0;border-bottom:1px solid var(--border)">▸ ${l}</li>`).join('')}</ul>
+            </div>`;
+
+            resultsDiv.innerHTML = verdictHtml + scoreCard + metricsHtml;
+        } catch (e) {
+            resultsDiv.innerHTML = `<div class="card"><p class="val-negative">Error: ${e.message}</p></div>`;
+        }
+        this.hideLoading();
     },
 
     async _runCompare() {
@@ -981,10 +1323,43 @@ const App = {
                     <div id="projection-results" style="margin-top:16px"></div>
                 </div>
             </div>
+
+            <div class="grid grid-3" style="margin-top:0">
+                <div class="card">
+                    <div class="card-title">PBV Valuation</div>
+                    <p style="color:var(--text-muted);font-size:0.82em;margin-bottom:12px">Justified Price-to-Book model — best for banks &amp; financials.</p>
+                    <div class="form-row">
+                        ${Forms.group('Cost of Equity (%)', 'pbv_coe', 'number', 10, { step: '0.5', min: '1', max: '30' })}
+                        ${Forms.group('Terminal Growth (%)', 'pbv_tg', 'number', 5, { step: '0.5', min: '0', max: '15' })}
+                    </div>
+                    <button class="btn btn-primary" id="btn-pbv">Run PBV</button>
+                    <div id="pbv-results" style="margin-top:16px"></div>
+                </div>
+                <div class="card">
+                    <div class="card-title">DDM (Gordon Growth)</div>
+                    <p style="color:var(--text-muted);font-size:0.82em;margin-bottom:12px">Dividend Discount Model — applies to dividend-paying stocks.</p>
+                    <div class="form-row">
+                        ${Forms.group('Dividend Growth (%)', 'ddm_g', 'number', 5, { step: '0.5', min: '0', max: '20' })}
+                        ${Forms.group('Cost of Equity (%)', 'ddm_coe', 'number', 10, { step: '0.5', min: '1', max: '30' })}
+                    </div>
+                    <button class="btn btn-primary" id="btn-ddm">Run DDM</button>
+                    <div id="ddm-results" style="margin-top:16px"></div>
+                </div>
+                <div class="card">
+                    <div class="card-title">ROE Growth Model</div>
+                    <p style="color:var(--text-muted);font-size:0.82em;margin-bottom:12px">Sustainable growth model based on ROE &amp; retention ratio.</p>
+                    <div class="form-row">
+                        ${Forms.group('Cost of Equity (%)', 'roe_coe', 'number', 10, { step: '0.5', min: '1', max: '30' })}
+                    </div>
+                    <button class="btn btn-primary" id="btn-roe-model">Run ROE Model</button>
+                    <div id="roe-results" style="margin-top:16px"></div>
+                </div>
+            </div>
         `);
 
         this._modelTicker = ticker;
         this._modelResults = {};
+        this._setupModelSync();
 
         // DCF
         document.getElementById('btn-dcf').onclick = async () => {
@@ -1162,6 +1537,158 @@ const App = {
             }
             this.hideLoading();
         };
+
+        // PBV Model
+        document.getElementById('btn-pbv').onclick = async () => {
+            const coe = (parseFloat(document.getElementById('pbv_coe').value) || 10) / 100;
+            const tg = (parseFloat(document.getElementById('pbv_tg').value) || 5) / 100;
+            this.showLoading();
+            try {
+                const result = await this.api('/api/model/pbv', {
+                    method: 'POST',
+                    body: { ticker, cost_of_equity: coe, terminal_growth: tg },
+                });
+                this._modelResults.pbv = result;
+                const el = document.getElementById('pbv-results');
+                if (result.error) {
+                    el.innerHTML = `<p class="val-negative">${result.error}</p>`;
+                } else {
+                    const upside = result.upside_pct != null
+                        ? `<span class="${result.upside_pct >= 0 ? 'val-positive' : 'val-negative'}" style="font-size:1.1em;font-weight:700">${result.upside_pct > 0 ? '+' : ''}${result.upside_pct}%</span>`
+                        : '';
+                    const verdict = result.upside_pct != null
+                        ? (result.upside_pct > 20 ? '<span class="badge badge-green">Undervalued</span>'
+                           : result.upside_pct < -20 ? '<span class="badge badge-red">Overvalued</span>'
+                           : '<span class="badge badge-orange">Fair Value</span>')
+                        : '';
+                    el.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+                        <div><div style="color:var(--text-muted);font-size:0.8em">Intrinsic / Share</div>
+                        <div style="font-size:1.6em;font-weight:700">${result.intrinsic_per_share != null ? Tables.addSeparator(result.intrinsic_per_share.toFixed(2)) : 'N/A'}</div></div>
+                        <div style="text-align:right"><div style="color:var(--text-muted);font-size:0.8em">Current: ${result.current_price != null ? Tables.addSeparator(result.current_price.toFixed(2)) : 'N/A'}</div><div>${upside} ${verdict}</div></div>
+                    </div>
+                    ${Tables.keyValue({
+                        'Justified PBV': result.justified_pbv != null ? result.justified_pbv.toFixed(2) + 'x' : 'N/A',
+                        'Book Value / Share': Tables.formatValue(result.book_value_per_share),
+                        'ROE Used': result.roe_used != null ? result.roe_used + '%' : 'N/A',
+                        'Cost of Equity': result.cost_of_equity + '%',
+                        'Terminal Growth': result.terminal_growth + '%',
+                    })}`;
+                }
+            } catch (e) {
+                document.getElementById('pbv-results').innerHTML = `<p class="val-negative">${e.message}</p>`;
+            }
+            this.hideLoading();
+        };
+
+        // DDM
+        document.getElementById('btn-ddm').onclick = async () => {
+            const g = (parseFloat(document.getElementById('ddm_g').value) || 5) / 100;
+            const coe = (parseFloat(document.getElementById('ddm_coe').value) || 10) / 100;
+            this.showLoading();
+            try {
+                const result = await this.api('/api/model/ddm', {
+                    method: 'POST',
+                    body: { ticker, growth_rate: g, cost_of_equity: coe },
+                });
+                this._modelResults.ddm = result;
+                const el = document.getElementById('ddm-results');
+                if (result.error) {
+                    el.innerHTML = `<p class="val-negative">${result.error}</p>`;
+                } else {
+                    const upside = result.upside_pct != null
+                        ? `<span class="${result.upside_pct >= 0 ? 'val-positive' : 'val-negative'}" style="font-size:1.1em;font-weight:700">${result.upside_pct > 0 ? '+' : ''}${result.upside_pct}%</span>`
+                        : '';
+                    const verdict = result.upside_pct != null
+                        ? (result.upside_pct > 20 ? '<span class="badge badge-green">Undervalued</span>'
+                           : result.upside_pct < -20 ? '<span class="badge badge-red">Overvalued</span>'
+                           : '<span class="badge badge-orange">Fair Value</span>')
+                        : '';
+                    el.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+                        <div><div style="color:var(--text-muted);font-size:0.8em">Intrinsic / Share</div>
+                        <div style="font-size:1.6em;font-weight:700">${result.intrinsic_per_share != null ? Tables.addSeparator(result.intrinsic_per_share.toFixed(2)) : 'N/A'}</div></div>
+                        <div style="text-align:right"><div style="color:var(--text-muted);font-size:0.8em">Current: ${result.current_price != null ? Tables.addSeparator(result.current_price.toFixed(2)) : 'N/A'}</div><div>${upside} ${verdict}</div></div>
+                    </div>
+                    ${Tables.keyValue({
+                        'Last Dividend': Tables.formatValue(result.last_dividend),
+                        'D1 (Next Dividend)': Tables.formatValue(result.d1),
+                        'Growth Rate': result.growth_rate + '%',
+                        'Cost of Equity': result.cost_of_equity + '%',
+                    })}`;
+                }
+            } catch (e) {
+                document.getElementById('ddm-results').innerHTML = `<p class="val-negative">${e.message}</p>`;
+            }
+            this.hideLoading();
+        };
+
+        // ROE Growth Model
+        document.getElementById('btn-roe-model').onclick = async () => {
+            const coe = (parseFloat(document.getElementById('roe_coe').value) || 10) / 100;
+            this.showLoading();
+            try {
+                const result = await this.api('/api/model/roe', {
+                    method: 'POST',
+                    body: { ticker, cost_of_equity: coe },
+                });
+                this._modelResults.roe_model = result;
+                const el = document.getElementById('roe-results');
+                if (result.error) {
+                    el.innerHTML = `<p class="val-negative">${result.error}</p>`;
+                } else {
+                    const upside = result.upside_pct != null
+                        ? `<span class="${result.upside_pct >= 0 ? 'val-positive' : 'val-negative'}" style="font-size:1.1em;font-weight:700">${result.upside_pct > 0 ? '+' : ''}${result.upside_pct}%</span>`
+                        : '';
+                    const verdict = result.upside_pct != null
+                        ? (result.upside_pct > 20 ? '<span class="badge badge-green">Undervalued</span>'
+                           : result.upside_pct < -20 ? '<span class="badge badge-red">Overvalued</span>'
+                           : '<span class="badge badge-orange">Fair Value</span>')
+                        : '';
+                    el.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+                        <div><div style="color:var(--text-muted);font-size:0.8em">Intrinsic / Share</div>
+                        <div style="font-size:1.6em;font-weight:700">${result.intrinsic_per_share != null ? Tables.addSeparator(result.intrinsic_per_share.toFixed(2)) : 'N/A'}</div></div>
+                        <div style="text-align:right"><div style="color:var(--text-muted);font-size:0.8em">Current: ${result.current_price != null ? Tables.addSeparator(result.current_price.toFixed(2)) : 'N/A'}</div><div>${upside} ${verdict}</div></div>
+                    </div>
+                    ${Tables.keyValue({
+                        'ROE': result.roe_used != null ? result.roe_used + '%' : 'N/A',
+                        'Payout Ratio': result.payout_ratio != null ? result.payout_ratio + '%' : 'N/A',
+                        'Retention Ratio': result.retention_ratio != null ? result.retention_ratio + '%' : 'N/A',
+                        'Sustainable Growth': result.sustainable_g != null ? result.sustainable_g + '%' : 'N/A',
+                        'EPS': Tables.formatValue(result.eps),
+                        'Cost of Equity': result.cost_of_equity + '%',
+                    })}`;
+                }
+            } catch (e) {
+                document.getElementById('roe-results').innerHTML = `<p class="val-negative">${e.message}</p>`;
+            }
+            this.hideLoading();
+        };
+    },
+
+    /** Sync shared inputs (WACC / CoE and Terminal Growth) across all model cards */
+    _setupModelSync() {
+        // Group: WACC / Cost of Equity fields
+        const waccIds = ['wacc', 'scenario_wacc', 'pbv_coe', 'ddm_coe', 'roe_coe'];
+        // Group: Terminal Growth fields
+        const tgIds   = ['terminal_growth', 'scenario_tg', 'pbv_tg'];
+
+        const syncGroup = (ids, sourceId) => {
+            const src = document.getElementById(sourceId);
+            if (!src) return;
+            ids.forEach(id => {
+                if (id === sourceId) return;
+                const el = document.getElementById(id);
+                if (el) el.value = src.value;
+            });
+        };
+
+        waccIds.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('input', () => syncGroup(waccIds, id));
+        });
+        tgIds.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('input', () => syncGroup(tgIds, id));
+        });
     },
 
     async _saveValuation(ticker) {
@@ -1187,31 +1714,121 @@ const App = {
     },
 
     // --- Notes ---
+    _noteEditorHtml(initialTicker = '', initialTitle = '', initialContent = '', initialTags = '') {
+        const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        const toolbar = [
+            { icon: '<b>B</b>',  wrap: ['**','**'],    title: 'Bold (Ctrl+B)' },
+            { icon: '<em>I</em>', wrap: ['*','*'],      title: 'Italic (Ctrl+I)' },
+            { icon: '`</>`',     wrap: ['`','`'],       title: 'Inline code' },
+            { icon: 'H2',        prefix: '## ',         title: 'Heading 2' },
+            { icon: 'H3',        prefix: '### ',        title: 'Heading 3' },
+            { icon: '—',         line: '---',           title: 'Divider' },
+            { icon: '▸ List',    prefix: '- ',          title: 'Bullet list' },
+            { icon: '❝',         prefix: '> ',          title: 'Blockquote' },
+        ].map((b, i) => `<button type="button" class="btn btn-sm btn-secondary note-tb-btn" data-idx="${i}" title="${b.title}" style="padding:2px 7px;font-size:0.8em">${b.icon}</button>`).join('');
+
+        return `
+            <div class="form-row" style="gap:10px">
+                ${Forms.group('Ticker', 'note-ticker', 'text', esc(initialTicker), { placeholder: 'BBCA.JK' })}
+                ${Forms.group('Title', 'note-title', 'text', esc(initialTitle), { placeholder: 'Analysis title' })}
+            </div>
+            <div class="form-group">
+                <label>Content <span style="color:var(--text-muted);font-size:0.78em;font-weight:400">(Markdown: **bold** *italic* # heading - list &gt; quote \`code\`)</span></label>
+                <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px">${toolbar}</div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                    <textarea id="note-content" name="note-content" rows="10"
+                        style="font-family:monospace;font-size:0.85em;resize:vertical;min-height:180px"
+                        placeholder="Tulis analisis kamu dengan markdown...">${esc(initialContent)}</textarea>
+                    <div id="note-preview"
+                        style="min-height:180px;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius);overflow-y:auto;font-size:0.88em;line-height:1.6"></div>
+                </div>
+                <div style="font-size:0.75em;color:var(--text-muted);margin-top:4px">Editor kiri · Preview kanan (live)</div>
+            </div>
+            ${Forms.group('Tags (pisahkan koma)', 'note-tags', 'text', esc(initialTags), { placeholder: 'banking, analisis' })}`;
+    },
+
+    _initNoteEditor() {
+        const ta = document.getElementById('note-content');
+        const preview = document.getElementById('note-preview');
+        if (!ta || !preview) return;
+
+        const update = () => { preview.innerHTML = this._md(ta.value); };
+        ta.addEventListener('input', update);
+        update();
+
+        // Toolbar buttons
+        const toolbarDefs = [
+            { wrap: ['**','**'] }, { wrap: ['*','*'] }, { wrap: ['`','`'] },
+            { prefix: '## ' }, { prefix: '### ' }, { line: '---' },
+            { prefix: '- ' }, { prefix: '> ' },
+        ];
+        document.querySelectorAll('.note-tb-btn').forEach(btn => {
+            btn.onclick = () => {
+                const def = toolbarDefs[+btn.dataset.idx];
+                const start = ta.selectionStart, end = ta.selectionEnd;
+                const sel = ta.value.slice(start, end);
+                let replacement, cursorOffset;
+                if (def.line) {
+                    replacement = (start > 0 ? '\n' : '') + def.line + '\n';
+                    cursorOffset = replacement.length;
+                } else if (def.wrap) {
+                    replacement = def.wrap[0] + (sel || 'teks') + def.wrap[1];
+                    cursorOffset = def.wrap[0].length + (sel || 'teks').length;
+                } else if (def.prefix) {
+                    const lineStart = ta.value.lastIndexOf('\n', start - 1) + 1;
+                    ta.value = ta.value.slice(0, lineStart) + def.prefix + ta.value.slice(lineStart);
+                    ta.selectionStart = ta.selectionEnd = lineStart + def.prefix.length;
+                    update();
+                    ta.focus();
+                    return;
+                }
+                ta.value = ta.value.slice(0, start) + replacement + ta.value.slice(end);
+                ta.selectionStart = ta.selectionEnd = start + cursorOffset;
+                update();
+                ta.focus();
+            };
+        });
+
+        // Ctrl+B / Ctrl+I shortcuts
+        ta.addEventListener('keydown', e => {
+            if (e.ctrlKey && e.key === 'b') { e.preventDefault(); toolbarDefs[0] && document.querySelector('[data-idx="0"]')?.click(); }
+            if (e.ctrlKey && e.key === 'i') { e.preventDefault(); toolbarDefs[1] && document.querySelector('[data-idx="1"]')?.click(); }
+            // Tab → 2 spaces
+            if (e.key === 'Tab') {
+                e.preventDefault();
+                const s = ta.selectionStart;
+                ta.value = ta.value.slice(0, s) + '  ' + ta.value.slice(ta.selectionEnd);
+                ta.selectionStart = ta.selectionEnd = s + 2;
+            }
+        });
+    },
+
     async renderNotes() {
         this.showLoading();
         try {
             const notes = await this.api('/api/notes');
+            const esc = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
             let listHtml = '';
             if (notes.length > 0) {
                 listHtml = notes.map(n => `
                     <div class="card">
-                        <div style="display:flex;justify-content:space-between;align-items:start">
-                            <div>
-                                <span class="badge badge-blue">${n.ticker}</span>
-                                ${n.tags.map(t => `<span class="badge badge-purple">${t}</span>`).join(' ')}
+                        <div style="display:flex;justify-content:space-between;align-items:start;flex-wrap:wrap;gap:4px">
+                            <div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center">
+                                <span class="badge badge-blue">${esc(n.ticker)}</span>
+                                ${(n.tags||[]).map(t => `<span class="badge badge-purple">${esc(t)}</span>`).join('')}
                             </div>
-                            <div style="display:flex;gap:4px">
+                            <div style="display:flex;gap:4px;align-items:center">
+                                <span style="color:var(--text-muted);font-size:0.75em">${n.updated_at.substring(0,10)}</span>
                                 <button class="btn btn-sm btn-secondary" onclick="App.editNote(${n.id})">Edit</button>
                                 <button class="btn btn-sm btn-danger" onclick="App.deleteNote(${n.id})">Del</button>
                             </div>
                         </div>
-                        <div class="card-title" style="margin-top:8px">${n.title}</div>
-                        <p style="color:var(--text-secondary);font-size:0.9em;white-space:pre-wrap">${n.content || ''}</p>
-                        <p style="color:var(--text-muted);font-size:0.8em;margin-top:8px">${n.updated_at.substring(0,10)}</p>
+                        <div class="card-title" style="margin-top:8px">${esc(n.title)}</div>
+                        <div class="note-body" style="margin-top:8px;font-size:0.88em;line-height:1.65">${this._md(n.content || '')}</div>
                     </div>
                 `).join('');
             } else {
-                listHtml = '<div class="empty-state"><p>No notes yet. Create one below.</p></div>';
+                listHtml = '<div class="empty-state"><p>Belum ada catatan. Buat satu di bawah.</p></div>';
             }
 
             this.render(`
@@ -1219,30 +1836,39 @@ const App = {
                     <h2>Notes</h2>
                     <button class="btn btn-sm btn-secondary" onclick="App.screenshotToClipboard()">Screenshot</button>
                 </div>
-                <div class="card">
-                    <div class="card-title">New Note</div>
-                    <div class="form-row">
-                        ${Forms.group('Ticker', 'note-ticker', 'text', '', { placeholder: 'BBCA.JK' })}
-                        ${Forms.group('Title', 'note-title', 'text', '', { placeholder: 'Analysis title' })}
+                <div class="card" id="note-form-card">
+                    <div class="card-title">Catatan Baru</div>
+                    ${this._noteEditorHtml()}
+                    <div style="margin-top:12px;display:flex;gap:8px">
+                        <button class="btn btn-primary" id="btn-save-note">Simpan Catatan</button>
+                        <button class="btn btn-secondary" id="btn-reset-note" type="button">Reset</button>
                     </div>
-                    ${Forms.group('Content', 'note-content', 'textarea', '', { placeholder: 'Your analysis notes...' })}
-                    ${Forms.group('Tags (comma-separated)', 'note-tags', 'text', '', { placeholder: 'banking, analysis' })}
-                    <button class="btn btn-primary" id="btn-save-note">Save Note</button>
                 </div>
-                <div id="notes-list">${listHtml}</div>
+                <div id="notes-list" style="margin-top:16px">${listHtml}</div>
             `);
 
+            this._initNoteEditor();
+
             document.getElementById('btn-save-note').onclick = async () => {
-                const ticker = document.getElementById('note-ticker').value.trim();
-                const title = document.getElementById('note-title').value.trim();
+                const ticker  = document.getElementById('note-ticker').value.trim();
+                const title   = document.getElementById('note-title').value.trim();
                 const content = document.getElementById('note-content').value;
-                const tags = document.getElementById('note-tags').value;
-                if (!ticker || !title) { this.toast('Ticker and title required', 'error'); return; }
+                const tags    = document.getElementById('note-tags').value;
+                if (!ticker || !title) { this.toast('Ticker dan judul wajib diisi', 'error'); return; }
                 try {
                     await this.api('/api/notes', { method: 'POST', body: { ticker, title, content, tags } });
-                    this.toast('Note saved', 'success');
+                    this.toast('Catatan disimpan', 'success');
                     this.renderNotes();
                 } catch (e) { this.toast(e.message, 'error'); }
+            };
+            document.getElementById('btn-reset-note').onclick = () => {
+                document.getElementById('note-ticker').value = '';
+                document.getElementById('note-title').value = '';
+                document.getElementById('note-content').value = '';
+                document.getElementById('note-tags').value = '';
+                document.getElementById('note-preview').innerHTML = '';
+                document.getElementById('btn-save-note').textContent = 'Simpan Catatan';
+                this._initNoteEditor();
             };
         } catch (e) {
             this.render(`<div class="card"><p class="val-negative">${e.message}</p></div>`);
@@ -1263,25 +1889,30 @@ const App = {
         try {
             const notes = await this.api('/api/notes');
             const note = notes.find(n => n.id === id);
-            if (!note) { this.toast('Note not found', 'error'); return; }
-            document.getElementById('note-ticker').value = note.ticker;
-            document.getElementById('note-title').value = note.title;
-            document.getElementById('note-content').value = note.content || '';
-            document.getElementById('note-tags').value = (note.tags || []).join(', ');
-            // Change save button to update
-            const btn = document.getElementById('btn-save-note');
-            btn.textContent = 'Update Note';
-            btn.onclick = async () => {
-                const ticker = document.getElementById('note-ticker').value.trim();
-                const title = document.getElementById('note-title').value.trim();
-                const content = document.getElementById('note-content').value;
-                const tags = document.getElementById('note-tags').value;
-                try {
-                    await this.api(`/api/notes/${id}`, { method: 'PUT', body: { title, content, tags } });
-                    this.toast('Note updated', 'success');
-                    this.renderNotes();
-                } catch (e) { this.toast(e.message, 'error'); }
-            };
+            if (!note) { this.toast('Catatan tidak ditemukan', 'error'); return; }
+
+            // Re-render editor section with existing values
+            const formCard = document.getElementById('note-form-card');
+            if (formCard) {
+                formCard.innerHTML = `<div class="card-title">Edit Catatan</div>
+                    ${this._noteEditorHtml(note.ticker, note.title, note.content || '', (note.tags||[]).join(', '))}
+                    <div style="margin-top:12px;display:flex;gap:8px">
+                        <button class="btn btn-primary" id="btn-save-note">Update Catatan</button>
+                        <button class="btn btn-secondary" id="btn-cancel-edit" type="button">Batal</button>
+                    </div>`;
+                this._initNoteEditor();
+                document.getElementById('btn-save-note').onclick = async () => {
+                    const title   = document.getElementById('note-title').value.trim();
+                    const content = document.getElementById('note-content').value;
+                    const tags    = document.getElementById('note-tags').value;
+                    try {
+                        await this.api(`/api/notes/${id}`, { method: 'PUT', body: { title, content, tags } });
+                        this.toast('Catatan diperbarui', 'success');
+                        this.renderNotes();
+                    } catch (e) { this.toast(e.message, 'error'); }
+                };
+                document.getElementById('btn-cancel-edit').onclick = () => this.renderNotes();
+            }
             window.scrollTo({ top: 0, behavior: 'smooth' });
         } catch (e) { this.toast(e.message, 'error'); }
     },

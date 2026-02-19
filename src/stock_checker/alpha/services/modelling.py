@@ -2,7 +2,8 @@
 
 from stock_checker.alpha.services.data_fetcher import get_info, get_cashflow, get_balance_sheet
 from stock_checker.alpha.calculations.valuation import (
-    calc_dcf, calc_scenario, calc_sensitivity, calc_linear_projection
+    calc_dcf, calc_scenario, calc_sensitivity, calc_linear_projection,
+    calc_pbv, calc_ddm, calc_roe_sustainable_growth,
 )
 from stock_checker.alpha.services.trends import _safe, _extract_row
 
@@ -109,6 +110,91 @@ def run_sensitivity(symbol, wacc_range=None, growth_range=None,
 
     return calc_sensitivity(fcf_base, wacc_range, growth_range,
                             terminal_growth, projection_years, shares, net_debt)
+
+
+def run_pbv(symbol, cost_of_equity=0.10, terminal_growth=0.05):
+    """Run PBV valuation for a ticker."""
+    info = get_info(symbol)
+    balance = get_balance_sheet(symbol)
+
+    # Extract ROE from info
+    roe = info.get('returnOnEquity')  # decimal from yfinance
+
+    # Extract book value per share
+    bvps = info.get('bookValue')
+
+    # Fallback: compute from balance sheet
+    if bvps is None and balance is not None and not balance.empty:
+        latest_bs = balance.iloc[:, 0]
+        equity = _safe(latest_bs.get('Stockholders Equity'))
+        shares = info.get('sharesOutstanding')
+        if equity and shares and shares > 0:
+            bvps = equity / shares
+
+    if roe is None:
+        return {"error": "ROE data not available for this ticker"}
+    if bvps is None:
+        return {"error": "Book value per share not available for this ticker"}
+
+    current_price = _safe(info.get("currentPrice") or info.get("regularMarketPrice"))
+
+    result = calc_pbv(roe, bvps, cost_of_equity, terminal_growth)
+
+    if "error" not in result:
+        result["current_price"] = current_price
+        if current_price and result.get("intrinsic_per_share"):
+            result["upside_pct"] = round(
+                (result["intrinsic_per_share"] - current_price) / current_price * 100, 2
+            )
+
+    return result
+
+
+def run_ddm(symbol, growth_rate=0.05, cost_of_equity=0.10):
+    """Run DDM (Gordon Growth Model) valuation for a ticker."""
+    info = get_info(symbol)
+
+    # Last annual dividend per share
+    last_dividend = _safe(info.get('lastDividendValue') or info.get('dividendRate'))
+
+    current_price = _safe(info.get("currentPrice") or info.get("regularMarketPrice"))
+
+    result = calc_ddm(last_dividend, growth_rate, cost_of_equity)
+
+    if "error" not in result:
+        result["current_price"] = current_price
+        if current_price and result.get("intrinsic_per_share"):
+            result["upside_pct"] = round(
+                (result["intrinsic_per_share"] - current_price) / current_price * 100, 2
+            )
+
+    return result
+
+
+def run_roe_model(symbol, cost_of_equity=0.10):
+    """Run ROE Sustainable Growth Model valuation for a ticker."""
+    info = get_info(symbol)
+
+    roe = _safe(info.get('returnOnEquity'))
+    eps = _safe(info.get('trailingEps') or info.get('epsTrailingTwelveMonths'))
+    payout_ratio = _safe(info.get('payoutRatio'))
+    current_price = _safe(info.get("currentPrice") or info.get("regularMarketPrice"))
+
+    if roe is None:
+        return {"error": "ROE data not available for this ticker"}
+    if eps is None:
+        return {"error": "EPS data not available for this ticker"}
+
+    result = calc_roe_sustainable_growth(roe, payout_ratio, eps, cost_of_equity)
+
+    if "error" not in result:
+        result["current_price"] = current_price
+        if current_price and result.get("intrinsic_per_share"):
+            result["upside_pct"] = round(
+                (result["intrinsic_per_share"] - current_price) / current_price * 100, 2
+            )
+
+    return result
 
 
 def run_projection(symbol, metric="Total Revenue", periods_ahead=4):

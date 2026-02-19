@@ -643,6 +643,11 @@ const App = {
             if (panel) panel.classList.toggle('hidden', t !== tab);
             if (btn) btn.className = `btn btn-sm ${t === tab ? 'btn-primary' : 'btn-secondary'}`;
         });
+        // Plotly charts render at 0px when parent is display:none.
+        // Trigger resize after the tab is visible so charts fill the container.
+        if (tab === 'trends') {
+            requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
+        }
     },
 
     // Q2: Ratio card with N/A filtering

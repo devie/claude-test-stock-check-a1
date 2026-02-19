@@ -1021,14 +1021,26 @@ const App = {
 
             // Metrics comparison table
             const metricsHtml = '<div class="card">' + (() => {
+                const largeMets = ['Market Cap'];
+                const pctMets   = ['ROE', 'ROA', 'NPM', 'GPM', 'Dividend Yield'];
+                const ratioMets = ['PER', 'PBV', 'EV/EBITDA', 'PEG', 'DER', 'Current Ratio', 'Beta'];
+                const fmtMetric = (metric, v, ccy) => {
+                    if (v == null || !isFinite(v)) return 'N/A';
+                    if (largeMets.includes(metric))  return Tables.formatValue(v, true, ccy);
+                    if (metric === 'Current Price')  return Tables.formatPrice(v, ccy || 'IDR');
+                    if (pctMets.includes(metric))    return Tables.formatRatio(v, '%');
+                    if (ratioMets.includes(metric))  return Tables.formatRatio(v, 'x');
+                    return Tables.formatValue(v, false, ccy);
+                };
                 let html = `<table class="data-table"><thead><tr><th>Metric</th><th>${tA}</th><th>${tB}</th><th>Winner</th></tr></thead><tbody>`;
                 compareRes.metrics.forEach(m => {
-                    const dA = compareRes.data[tA]?.metrics?.[m];
-                    const dB = compareRes.data[tB]?.metrics?.[m];
-                    const fmt = (v) => v != null && isFinite(v) ? v.toFixed(2) : 'N/A';
+                    const dA   = compareRes.data[tA]?.metrics?.[m];
+                    const dB   = compareRes.data[tB]?.metrics?.[m];
+                    const ccyA = compareRes.data[tA]?.currency || '';
+                    const ccyB = compareRes.data[tB]?.currency || '';
                     const [clsA, clsB] = _ratioSignal(m, dA, dB);
                     const winner = clsA === 'badge-green' ? tA : clsB === 'badge-green' ? tB : '—';
-                    html += `<tr><td>${m}</td><td><span class="${clsA ? 'badge ' + clsA : ''}">${fmt(dA)}</span></td><td><span class="${clsB ? 'badge ' + clsB : ''}">${fmt(dB)}</span></td><td style="font-size:0.8em;color:var(--text-muted)">${winner}</td></tr>`;
+                    html += `<tr><td>${m}</td><td><span class="${clsA ? 'badge ' + clsA : ''}">${fmtMetric(m, dA, ccyA)}</span></td><td><span class="${clsB ? 'badge ' + clsB : ''}">${fmtMetric(m, dB, ccyB)}</span></td><td style="font-size:0.8em;color:var(--text-muted)">${winner}</td></tr>`;
                 });
                 html += '</tbody></table>';
                 return html;

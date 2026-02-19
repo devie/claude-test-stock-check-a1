@@ -47,18 +47,36 @@ INDUSTRY_CONFIG = {
         'valuation_metric': 'PBV',
         'valuation_bands': {'cheap': [0, 1.5], 'fair': [1.5, 2.5], 'expensive': [2.5, 5.0]},
         'thesis': {
-            'bull': (
-                'Suku bunga tinggi memperlebar NIM; kredit konsumen & UMKM tumbuh kencang; '
-                'digitalisasi menekan BOPO dan membuka fee-based income baru.'
-            ),
-            'bear': (
-                'Kenaikan NPL saat ekonomi melambat menggerus provisi; persaingan produk '
-                'simpanan menekan biaya dana; regulasi modal lebih ketat membatasi ekspansi.'
-            ),
-            'base': (
-                'NIM stabil di kisaran historis; kredit tumbuh 8–12% YoY; efisiensi digital '
-                'berlanjut; valuasi PBV wajar 1.5–2.5x untuk bank tier-1.'
-            ),
+            'bull': {
+                'en': (
+                    'High interest rates widen NIM; consumer & SME loans grow strongly; '
+                    'digitalization lowers cost-to-income and opens new fee-based revenue.'
+                ),
+                'id': (
+                    'Suku bunga tinggi memperlebar NIM; kredit konsumen & UMKM tumbuh kencang; '
+                    'digitalisasi menekan BOPO dan membuka fee-based income baru.'
+                ),
+            },
+            'bear': {
+                'en': (
+                    'Rising NPLs during economic slowdown erode provisions; deposit competition '
+                    'pressures funding costs; stricter capital regulations limit expansion.'
+                ),
+                'id': (
+                    'Kenaikan NPL saat ekonomi melambat menggerus provisi; persaingan produk '
+                    'simpanan menekan biaya dana; regulasi modal lebih ketat membatasi ekspansi.'
+                ),
+            },
+            'base': {
+                'en': (
+                    'NIM stable within historical range; credit grows 8–12% YoY; digital '
+                    'efficiency continues; fair PBV valuation 1.5–2.5x for tier-1 banks.'
+                ),
+                'id': (
+                    'NIM stabil di kisaran historis; kredit tumbuh 8–12% YoY; efisiensi digital '
+                    'berlanjut; valuasi PBV wajar 1.5–2.5x untuk bank tier-1.'
+                ),
+            },
         },
     },
     'telekomunikasi': {
@@ -70,18 +88,36 @@ INDUSTRY_CONFIG = {
         'valuation_metric': 'EV/EBITDA',
         'valuation_bands': {'cheap': [0, 5], 'fair': [5, 8], 'expensive': [8, 13]},
         'thesis': {
-            'bull': (
-                'Monetisasi 5G perluas ARPU; konsolidasi industri kurangi perang harga; '
-                'data center & B2B cloud jadi engine pertumbuhan baru.'
-            ),
-            'bear': (
-                'CapEx 5G besar menekan FCF; OTT menggerus revenue voice & SMS; '
-                'kompetisi harga menekan ARPU mobile.'
-            ),
-            'base': (
-                'Revenue tumbuh moderat 5–8% didorong data; EBITDA margin stabil 40–50%; '
-                'dividend yield menarik bagi income investor.'
-            ),
+            'bull': {
+                'en': (
+                    '5G monetization expands ARPU; industry consolidation reduces price wars; '
+                    'data center & B2B cloud become new growth engines.'
+                ),
+                'id': (
+                    'Monetisasi 5G perluas ARPU; konsolidasi industri kurangi perang harga; '
+                    'data center & B2B cloud jadi engine pertumbuhan baru.'
+                ),
+            },
+            'bear': {
+                'en': (
+                    'Heavy 5G CapEx pressures FCF; OTT erodes voice & SMS revenue; '
+                    'price competition compresses mobile ARPU.'
+                ),
+                'id': (
+                    'CapEx 5G besar menekan FCF; OTT menggerus revenue voice & SMS; '
+                    'kompetisi harga menekan ARPU mobile.'
+                ),
+            },
+            'base': {
+                'en': (
+                    'Revenue grows moderately 5–8% driven by data; EBITDA margin stable at '
+                    '40–50%; dividend yield attractive for income investors.'
+                ),
+                'id': (
+                    'Revenue tumbuh moderat 5–8% didorong data; EBITDA margin stabil 40–50%; '
+                    'dividend yield menarik bagi income investor.'
+                ),
+            },
         },
     },
     'energi_pertambangan': {
@@ -93,18 +129,36 @@ INDUSTRY_CONFIG = {
         'valuation_metric': 'EV/EBITDA',
         'valuation_bands': {'cheap': [0, 4], 'fair': [4, 7], 'expensive': [7, 12]},
         'thesis': {
-            'bull': (
-                'Supercycle harga komoditas angkat revenue; transisi energi ciptakan demand '
-                'mineral baterai; dividend yield tinggi menarik income investor.'
-            ),
-            'bear': (
-                'Perlambatan Tiongkok tekan harga komoditas; regulasi lingkungan & carbon tax '
-                'naikkan biaya; risiko stranded asset di batubara thermal.'
-            ),
-            'base': (
-                'Harga komoditas di kisaran mid-cycle; CapEx efisiensi jaga FCF; '
-                'eksplorasi terbatas pertahankan supply-demand balance.'
-            ),
+            'bull': {
+                'en': (
+                    'Commodity price supercycle lifts revenue; energy transition creates battery '
+                    'mineral demand; high dividend yield attracts income investors.'
+                ),
+                'id': (
+                    'Supercycle harga komoditas angkat revenue; transisi energi ciptakan demand '
+                    'mineral baterai; dividend yield tinggi menarik income investor.'
+                ),
+            },
+            'bear': {
+                'en': (
+                    'China slowdown pressures commodity prices; environmental regulations & '
+                    'carbon tax raise costs; stranded asset risk in thermal coal.'
+                ),
+                'id': (
+                    'Perlambatan Tiongkok tekan harga komoditas; regulasi lingkungan & carbon tax '
+                    'naikkan biaya; risiko stranded asset di batubara thermal.'
+                ),
+            },
+            'base': {
+                'en': (
+                    'Commodity prices at mid-cycle range; capital efficiency preserves FCF; '
+                    'limited exploration maintains supply-demand balance.'
+                ),
+                'id': (
+                    'Harga komoditas di kisaran mid-cycle; CapEx efisiensi jaga FCF; '
+                    'eksplorasi terbatas pertahankan supply-demand balance.'
+                ),
+            },
         },
     },
     'consumer_goods': {
@@ -116,18 +170,36 @@ INDUSTRY_CONFIG = {
         'valuation_metric': 'PER',
         'valuation_bands': {'cheap': [0, 15], 'fair': [15, 25], 'expensive': [25, 40]},
         'thesis': {
-            'bull': (
-                'Pertumbuhan kelas menengah dorong premiumisasi; penetrasi e-commerce '
-                'perluas jangkauan; pricing power jaga margin di tengah inflasi.'
-            ),
-            'bear': (
-                'Input cost (komoditas, packaging) menekan gross margin; '
-                'private label gerus market share; daya beli konsumen melemah.'
-            ),
-            'base': (
-                'Volume tumbuh 4–7% via distribusi & inovasi produk; margin stabil; '
-                'valuasi premium justified oleh brand moat.'
-            ),
+            'bull': {
+                'en': (
+                    'Middle-class growth drives premiumization; e-commerce penetration expands '
+                    'reach; pricing power protects margins amid inflation.'
+                ),
+                'id': (
+                    'Pertumbuhan kelas menengah dorong premiumisasi; penetrasi e-commerce '
+                    'perluas jangkauan; pricing power jaga margin di tengah inflasi.'
+                ),
+            },
+            'bear': {
+                'en': (
+                    'Input costs (commodities, packaging) pressure gross margin; private labels '
+                    'erode market share; consumer purchasing power weakens.'
+                ),
+                'id': (
+                    'Input cost (komoditas, packaging) menekan gross margin; '
+                    'private label gerus market share; daya beli konsumen melemah.'
+                ),
+            },
+            'base': {
+                'en': (
+                    'Volume grows 4–7% via distribution & product innovation; margins stable; '
+                    'premium valuation justified by brand moat.'
+                ),
+                'id': (
+                    'Volume tumbuh 4–7% via distribusi & inovasi produk; margin stabil; '
+                    'valuasi premium justified oleh brand moat.'
+                ),
+            },
         },
     },
     'manufaktur': {
@@ -139,18 +211,36 @@ INDUSTRY_CONFIG = {
         'valuation_metric': 'EV/EBITDA',
         'valuation_bands': {'cheap': [0, 6], 'fair': [6, 10], 'expensive': [10, 15]},
         'thesis': {
-            'bull': (
-                'Ekspansi infrastruktur tingkatkan demand semen/baja; substitusi impor '
-                'dorong utilisasi kapasitas; diversifikasi produk perluas margin.'
-            ),
-            'bear': (
-                'Harga energi & bahan baku naik tekan gross margin; over-capacity industri '
-                'picu perang harga; perlambatan konstruksi properti.'
-            ),
-            'base': (
-                'Utilisasi kapasitas moderat 70–80%; revenue tumbuh sejalan GDP 5–7%; '
-                'CapEx maintenance pertahankan efisiensi.'
-            ),
+            'bull': {
+                'en': (
+                    'Infrastructure expansion raises demand for cement/steel; import substitution '
+                    'drives capacity utilization; product diversification expands margins.'
+                ),
+                'id': (
+                    'Ekspansi infrastruktur tingkatkan demand semen/baja; substitusi impor '
+                    'dorong utilisasi kapasitas; diversifikasi produk perluas margin.'
+                ),
+            },
+            'bear': {
+                'en': (
+                    'Rising energy & raw material prices compress gross margin; industry '
+                    'over-capacity triggers price wars; property construction slowdown.'
+                ),
+                'id': (
+                    'Harga energi & bahan baku naik tekan gross margin; over-capacity industri '
+                    'picu perang harga; perlambatan konstruksi properti.'
+                ),
+            },
+            'base': {
+                'en': (
+                    'Moderate capacity utilization at 70–80%; revenue grows in line with GDP '
+                    'at 5–7%; maintenance CapEx preserves efficiency.'
+                ),
+                'id': (
+                    'Utilisasi kapasitas moderat 70–80%; revenue tumbuh sejalan GDP 5–7%; '
+                    'CapEx maintenance pertahankan efisiensi.'
+                ),
+            },
         },
     },
     'properti_konstruksi': {
@@ -162,18 +252,36 @@ INDUSTRY_CONFIG = {
         'valuation_metric': 'PBV',
         'valuation_bands': {'cheap': [0, 0.5], 'fair': [0.5, 1.0], 'expensive': [1.0, 2.0]},
         'thesis': {
-            'bull': (
-                'Suku bunga turun dorong permintaan KPR; program rumah subsidi serap '
-                'inventory; recurring income (mal/hotel) tumbuh stabil.'
-            ),
-            'bear': (
-                'Oversupply komersial tekan harga; suku bunga tinggi berat cicilan; '
-                'proyek mangkrak akibat ketidakpastian regulasi lahan.'
-            ),
-            'base': (
-                'Marketing sales tumbuh 5–10%; recurring income jadi buffer; '
-                'valuasi diskon terhadap NAV tetap ada di mayoritas emiten.'
-            ),
+            'bull': {
+                'en': (
+                    'Rate cuts boost mortgage demand; subsidized housing program absorbs '
+                    'inventory; recurring income (mall/hotel) grows steadily.'
+                ),
+                'id': (
+                    'Suku bunga turun dorong permintaan KPR; program rumah subsidi serap '
+                    'inventory; recurring income (mal/hotel) tumbuh stabil.'
+                ),
+            },
+            'bear': {
+                'en': (
+                    'Commercial oversupply pressures prices; high rates burden installments; '
+                    'stalled projects due to land regulation uncertainty.'
+                ),
+                'id': (
+                    'Oversupply komersial tekan harga; suku bunga tinggi berat cicilan; '
+                    'proyek mangkrak akibat ketidakpastian regulasi lahan.'
+                ),
+            },
+            'base': {
+                'en': (
+                    'Marketing sales grow 5–10%; recurring income provides buffer; '
+                    'NAV discount valuation persists at most issuers.'
+                ),
+                'id': (
+                    'Marketing sales tumbuh 5–10%; recurring income jadi buffer; '
+                    'valuasi diskon terhadap NAV tetap ada di mayoritas emiten.'
+                ),
+            },
         },
     },
     'logistik_transportasi': {
@@ -185,18 +293,36 @@ INDUSTRY_CONFIG = {
         'valuation_metric': 'EV/EBITDA',
         'valuation_bands': {'cheap': [0, 5], 'fair': [5, 9], 'expensive': [9, 14]},
         'thesis': {
-            'bull': (
-                'Boom e-commerce pacu last-mile delivery; digitalisasi cold chain & '
-                'warehouse automation tekan biaya; rute baru tingkatkan utilisasi aset.'
-            ),
-            'bear': (
-                'Kenaikan BBM langsung pukul biaya operasional; platform digital logistik '
-                'perketat kompetisi; volume kargo bersifat siklikal.'
-            ),
-            'base': (
-                'Volume tumbuh seiring penetrasi e-commerce; margin stabil via efisiensi '
-                'rute; CapEx moderat untuk fleet maintenance.'
-            ),
+            'bull': {
+                'en': (
+                    'E-commerce boom accelerates last-mile delivery; cold chain digitalization '
+                    '& warehouse automation cut costs; new routes improve asset utilization.'
+                ),
+                'id': (
+                    'Boom e-commerce pacu last-mile delivery; digitalisasi cold chain & '
+                    'warehouse automation tekan biaya; rute baru tingkatkan utilisasi aset.'
+                ),
+            },
+            'bear': {
+                'en': (
+                    'Fuel price hikes directly hit operating costs; digital logistics platforms '
+                    'intensify competition; cargo volumes are cyclical.'
+                ),
+                'id': (
+                    'Kenaikan BBM langsung pukul biaya operasional; platform digital logistik '
+                    'perketat kompetisi; volume kargo bersifat siklikal.'
+                ),
+            },
+            'base': {
+                'en': (
+                    'Volume grows with e-commerce penetration; margins stable via route '
+                    'efficiency; moderate CapEx for fleet maintenance.'
+                ),
+                'id': (
+                    'Volume tumbuh seiring penetrasi e-commerce; margin stabil via efisiensi '
+                    'rute; CapEx moderat untuk fleet maintenance.'
+                ),
+            },
         },
     },
     'healthcare': {
@@ -208,18 +334,36 @@ INDUSTRY_CONFIG = {
         'valuation_metric': 'PER',
         'valuation_bands': {'cheap': [0, 15], 'fair': [15, 25], 'expensive': [25, 40]},
         'thesis': {
-            'bull': (
-                'Aging population tingkatkan demand layanan; penetrasi BPJS/JKN perluas '
-                'pasien rumah sakit; pipeline obat baru mendorong pertumbuhan.'
-            ),
-            'bear': (
-                'Regulasi tarif BPJS menekan margin; paten obat expired buka persaingan '
-                'generik; biaya R&D tinggi tanpa jaminan approval.'
-            ),
-            'base': (
-                'Revenue tumbuh 8–12% seiring awareness kesehatan; margin stabil karena '
-                'pricing power produk branded; ekspansi organik rs/klinik terkendali.'
-            ),
+            'bull': {
+                'en': (
+                    'Aging population raises service demand; BPJS/JKN penetration expands '
+                    'hospital patient base; new drug pipeline drives growth.'
+                ),
+                'id': (
+                    'Aging population tingkatkan demand layanan; penetrasi BPJS/JKN perluas '
+                    'pasien rumah sakit; pipeline obat baru mendorong pertumbuhan.'
+                ),
+            },
+            'bear': {
+                'en': (
+                    'BPJS tariff regulation pressures margins; expired drug patents open '
+                    'generic competition; high R&D costs without guaranteed approval.'
+                ),
+                'id': (
+                    'Regulasi tarif BPJS menekan margin; paten obat expired buka persaingan '
+                    'generik; biaya R&D tinggi tanpa jaminan approval.'
+                ),
+            },
+            'base': {
+                'en': (
+                    'Revenue grows 8–12% with health awareness; margins stable due to branded '
+                    'product pricing power; organic hospital/clinic expansion manageable.'
+                ),
+                'id': (
+                    'Revenue tumbuh 8–12% seiring awareness kesehatan; margin stabil karena '
+                    'pricing power produk branded; ekspansi organik rs/klinik terkendali.'
+                ),
+            },
         },
     },
 }
@@ -233,18 +377,36 @@ _UNKNOWN_CONFIG = {
     'valuation_metric': 'PER',
     'valuation_bands': {'cheap': [0, 10], 'fair': [10, 20], 'expensive': [20, 35]},
     'thesis': {
-        'bull': (
-            'Pertumbuhan revenue di atas ekspektasi; ekspansi margin dari efisiensi '
-            'operasional; katalis spesifik mendorong re-rating valuasi.'
-        ),
-        'bear': (
-            'Tekanan kompetitif menekan margin; pertumbuhan melambat di bawah konsensus; '
-            'risiko makro menurunkan appetite investor.'
-        ),
-        'base': (
-            'Pertumbuhan moderat sejalan industri; margin stabil; '
-            'valuasi wajar berdasarkan rata-rata historis.'
-        ),
+        'bull': {
+            'en': (
+                'Revenue growth above expectations; margin expansion from operational '
+                'efficiency; specific catalysts drive valuation re-rating.'
+            ),
+            'id': (
+                'Pertumbuhan revenue di atas ekspektasi; ekspansi margin dari efisiensi '
+                'operasional; katalis spesifik mendorong re-rating valuasi.'
+            ),
+        },
+        'bear': {
+            'en': (
+                'Competitive pressure compresses margins; growth slows below consensus; '
+                'macro risks reduce investor appetite.'
+            ),
+            'id': (
+                'Tekanan kompetitif menekan margin; pertumbuhan melambat di bawah konsensus; '
+                'risiko makro menurunkan appetite investor.'
+            ),
+        },
+        'base': {
+            'en': (
+                'Moderate growth in line with industry; margins stable; '
+                'fair valuation based on historical averages.'
+            ),
+            'id': (
+                'Pertumbuhan moderat sejalan industri; margin stabil; '
+                'valuasi wajar berdasarkan rata-rata historis.'
+            ),
+        },
     },
 }
 

@@ -678,12 +678,20 @@ const App = {
             { key: 'base', label: 'Base Case', icon: '📊', color: '#2196f3' },
             { key: 'bear', label: 'Bear Case', icon: '📉', color: '#f44336' },
         ];
+        const getText = (v) => {
+            if (!v) return '–';
+            if (typeof v === 'object' && (v.en || v.id)) {
+                return `<div style="margin-bottom:5px">${v.en || ''}</div>`
+                     + `<div style="color:var(--text-muted);font-style:italic;border-top:1px solid var(--border);padding-top:5px;margin-top:2px">${v.id || ''}</div>`;
+            }
+            return v;
+        };
         return `<div style="font-size:0.82em;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">Investment Thesis</div>
             <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
                 ${items.map(({ key, label, icon, color }) => `
                     <div style="background:var(--bg-input);border:1px solid var(--border);border-radius:6px;padding:10px;border-top:3px solid ${color}">
                         <div style="font-size:0.78em;font-weight:700;color:${color};margin-bottom:6px">${icon} ${label}</div>
-                        <div style="font-size:0.78em;color:var(--text-secondary);line-height:1.5">${thesis[key] || '–'}</div>
+                        <div style="font-size:0.78em;color:var(--text-secondary);line-height:1.5">${getText(thesis[key])}</div>
                     </div>
                 `).join('')}
             </div>`;
@@ -692,11 +700,11 @@ const App = {
     _renderPeerLinks(peers, currentTicker) {
         if (!peers?.tickers?.length) return '';
         const { tickers, metrics } = peers;
-        return `<div style="font-size:0.8em;color:var(--text-muted);margin-bottom:6px">Kunci: ${(metrics || []).join(', ')}</div>
+        return `<div style="font-size:0.8em;color:var(--text-muted);margin-bottom:6px">Key metrics: ${(metrics || []).join(', ')}</div>
             <div style="display:flex;flex-wrap:wrap;gap:6px">
                 ${tickers.map(t => `
                     <button class="btn btn-sm btn-secondary" style="font-size:0.78em"
-                        onclick="App._pendingCompareTickers='${currentTicker},${t}';App.navigate('#compare')">
+                        onclick="App._triggerH2H('${currentTicker}','${t}')">
                         ${t} <span style="opacity:0.6">H2H →</span>
                     </button>
                 `).join('')}
@@ -714,11 +722,11 @@ const App = {
             </div>
         </div>`;
         return `<div class="card">
-            <div class="card-title">Analisis Industri</div>
+            <div class="card-title">Industry Analysis</div>
             ${header}
             <div class="grid grid-2" style="gap:16px;margin-bottom:16px">
                 <div>
-                    <div style="font-size:0.82em;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">Rasio Kunci Industri</div>
+                    <div style="font-size:0.82em;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">Key Industry Ratios</div>
                     ${this._renderIndustryRatioTable(specific_ratios)}
                 </div>
                 <div>
@@ -747,7 +755,7 @@ const App = {
         const lowerBetterKeys = ['PBV (x)', 'PER (x)', 'EV/EBITDA (x)', 'DER (x)',
                                   'Net Debt/EBITDA (x)', 'CapEx/Revenue (%)'];
         const sameIndustry = ctxA && ctxB && ctxA.industry_key === ctxB.industry_key;
-        let html = '<div class="card"><div class="card-title">Analisis Industri</div>';
+        let html = '<div class="card"><div class="card-title">Industry Analysis</div>';
         if (sameIndustry) {
             html += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
                 <span style="font-size:1.4em">${ctxA.icon}</span>
@@ -758,8 +766,8 @@ const App = {
             const rA = ctxA.specific_ratios || {};
             const rB = ctxB.specific_ratios || {};
             const allKeys = [...new Set([...Object.keys(rA), ...Object.keys(rB)])];
-            html += `<div style="font-size:0.82em;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">Rasio Kunci Industri</div>`;
-            html += `<table class="data-table" style="margin-bottom:16px"><thead><tr><th>Metrik</th><th>${tA}</th><th>${tB}</th><th>Unggul</th></tr></thead><tbody>`;
+            html += `<div style="font-size:0.82em;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">Key Industry Ratios</div>`;
+            html += `<table class="data-table" style="margin-bottom:16px"><thead><tr><th>Metric</th><th>${tA}</th><th>${tB}</th><th>Winner</th></tr></thead><tbody>`;
             allKeys.forEach(key => {
                 const vA = rA[key] != null ? parseFloat(rA[key]) : null;
                 const vB = rB[key] != null ? parseFloat(rB[key]) : null;
@@ -1076,9 +1084,16 @@ const App = {
 
     _compareMode: 'multi',
     _pendingCompareTickers: null,
+    _pendingH2HTickers: null,
 
     _compareWatchlist(tickersCsv) {
         this._pendingCompareTickers = tickersCsv;
+        Router.navigate('#compare');
+    },
+
+    _triggerH2H(tA, tB) {
+        this._compareMode = 'h2h';
+        this._pendingH2HTickers = [tA, tB];
         Router.navigate('#compare');
     },
 
@@ -1155,6 +1170,16 @@ const App = {
             this._pendingCompareTickers = null;
             document.getElementById('compare-tickers').value = pending.replace(/,/g, ', ');
             setTimeout(() => this._runCompare(), 50);
+        }
+
+        // Auto-fill + run H2H if triggered from peer links
+        if (this._pendingH2HTickers) {
+            const [pA, pB] = this._pendingH2HTickers;
+            this._pendingH2HTickers = null;
+            this._switchCompareTab('h2h');
+            document.getElementById('h2h-ticker-a').value = pA;
+            document.getElementById('h2h-ticker-b').value = pB;
+            setTimeout(() => this._runH2H(), 50);
         }
     },
 

@@ -110,44 +110,80 @@ def _parse_news_item(item, symbol):
         }
 
 
-def get_news(tickers, max_articles=15):
+def get_news(tickers, max_articles=15, max_per_ticker=2, days=7):
     """Fetch and aggregate news articles for a list of tickers.
+
+    Rules:
+    - Only articles published within the last `days` days (default 7).
+    - Max `max_per_ticker` articles per ticker (default 2), chosen by
+      cross-ticker relevance first (articles that appear in multiple tickers'
+      feeds score higher) then by recency.
+    - Final list sorted by recency, capped at `max_articles`.
 
     Args:
         tickers: list of ticker symbols
-        max_articles: maximum total articles to return (sorted by date desc)
+        max_articles: maximum total articles to return
+        max_per_ticker: max articles kept per ticker before global dedup
+        days: lookback window in days
 
     Returns:
         list of article dicts
     """
-    seen_urls = set()
-    articles = []
+    cutoff_ts = datetime.utcnow().timestamp() - days * 86400
+
+    # Pass 1 — collect all articles per ticker within the window
+    by_ticker: dict[str, list[dict]] = {}
+    url_ticker_count: dict[str, int] = {}  # how many tickers share this URL
 
     for symbol in tickers:
+        ticker_articles = []
         try:
             t = yf.Ticker(symbol)
             news_items = t.news or []
             for item in news_items:
                 parsed = _parse_news_item(item, symbol)
                 url = parsed.get('url', '')
-                if not url or url in seen_urls:
+                ts  = parsed.get('pub_ts', 0)
+                if not url or ts < cutoff_ts:
                     continue
-                seen_urls.add(url)
-                articles.append(parsed)
+                ticker_articles.append(parsed)
+                url_ticker_count[url] = url_ticker_count.get(url, 0) + 1
         except Exception:
-            continue
+            pass
+        by_ticker[symbol] = ticker_articles
 
-    # Sort by publish timestamp descending, take top N
-    articles.sort(key=lambda a: a['pub_ts'], reverse=True)
-    articles = articles[:max_articles]
+    # Pass 2 — per ticker: rank by (cross-ticker count desc, recency desc), keep top N
+    seen_urls: set[str] = set()
+    selected: list[dict] = []
 
-    # Fetch summaries for articles that don't already have one (from yfinance)
-    for art in articles:
+    for symbol in tickers:
+        candidates = by_ticker.get(symbol, [])
+        # Score: primary = number of tickers sharing this URL (trending signal)
+        #        secondary = publish timestamp (recency)
+        candidates.sort(
+            key=lambda a: (url_ticker_count.get(a['url'], 1), a['pub_ts']),
+            reverse=True,
+        )
+        added = 0
+        for art in candidates:
+            url = art['url']
+            if url in seen_urls:
+                continue
+            seen_urls.add(url)
+            selected.append(art)
+            added += 1
+            if added >= max_per_ticker:
+                break
+
+    # Pass 3 — sort all selected by recency, cap, fetch summaries
+    selected.sort(key=lambda a: a['pub_ts'], reverse=True)
+    selected = selected[:max_articles]
+
+    for art in selected:
         if not art.get('summary') and art.get('url'):
             art['summary'] = _fetch_summary(art['url'])
 
-    # Remove internal timestamp field
-    for art in articles:
+    for art in selected:
         art.pop('pub_ts', None)
 
-    return articles
+    return selected

@@ -138,33 +138,59 @@ def calc_valuation_score(ratios):
     return {'score': score, 'breakdown': breakdown}
 
 
-def calc_risk_score(ratios):
+def calc_risk_score(ratios, sector=None):
     """Compute Risk Score (0-100): low risk = high score.
 
-    Metrics:
+    Default (non-financial):
       DER          3x→0,   0x→100  weight 40%
       Beta (abs)   3→0,    0→100   weight 30%
       Current Ratio 0→0,  3+→100   weight 30%
 
+    Sector adjustments:
+      perbankan:  DER is structural (deposit leverage) — treated as neutral (50),
+                  Current Ratio inapplicable for banks; score driven by Beta only.
+      Capex-heavy (telekomunikasi, properti_konstruksi, logistik_transportasi):
+                  DER tolerance extended to 5x (high leverage is expected/normal).
+
     Args:
         ratios: dict from calc_all_ratios
+        sector: industry_key string for sector-aware adjustments (optional)
 
     Returns:
         dict with score and breakdown
     """
+    _CAPEX_HEAVY = {'telekomunikasi', 'properti_konstruksi', 'logistik_transportasi', 'infrastruktur'}
+
     der = ratios.get('DER')
     beta = ratios.get('Beta')
     current_ratio = ratios.get('Current Ratio')
 
-    # DER: 0 = safe (100), 3 = risky (0)
-    der_score = None
-    if der is not None:
-        der_score = max(0.0, min(100.0, (3 - abs(der)) / 3 * 100))
-
-    # Beta: 0 = safe (100), 3 = risky (0)
+    # Beta (abs): 0 = safe (100), 3 = risky (0) — universal
     beta_score = None
     if beta is not None:
         beta_score = max(0.0, min(100.0, (3 - abs(beta)) / 3 * 100))
+
+    if sector == 'perbankan':
+        # Banks: deposit leverage is structural, not distress.
+        # DER ~8–15x is normal; penalising it is analytically incorrect.
+        # Current Ratio is not a meaningful concept for deposit-funded institutions.
+        # Score is driven entirely by Beta (market risk).
+        der_score = 50.0  # Neutral — structural, not risk signal
+        cr_score = None   # Not applicable
+        breakdown = {
+            'DER': None,   # Marked as not applicable
+            'Beta': round(beta_score, 1) if beta_score is not None else None,
+            'Current Ratio': None,  # Not applicable
+        }
+        score = _weighted_avg([(beta_score, 1.0)])
+        return {'score': score, 'breakdown': breakdown}
+
+    # Capex-heavy sectors: extended DER tolerance — distress threshold at 5x, not 3x
+    der_limit = 5.0 if sector in _CAPEX_HEAVY else 3.0
+
+    der_score = None
+    if der is not None:
+        der_score = max(0.0, min(100.0, (der_limit - abs(der)) / der_limit * 100))
 
     # Current Ratio: 0 = risky (0), 3+ = safe (100)
     cr_score = None

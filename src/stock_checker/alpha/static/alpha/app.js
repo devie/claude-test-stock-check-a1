@@ -33,7 +33,7 @@ const H2H_SECTOR_CONFIG = {
             'Enterprise B2B and IoT revenue streams',
         ],
     },
-    konsumer: {
+    consumer_goods: {
         label: 'Consumer / FMCG',
         lowerBetter: ['PER', 'PBV', 'DER', 'Beta'],
         higherBetter: ['ROE', 'ROA', 'NPM', 'GPM', 'Dividend Yield', 'Current Ratio'],
@@ -78,8 +78,8 @@ const H2H_SECTOR_CONFIG = {
             'AI integration roadmap and digital ecosystem development',
         ],
     },
-    properti: {
-        label: 'Property & Real Estate',
+    properti_konstruksi: {
+        label: 'Property & Construction',
         lowerBetter: ['PER', 'PBV', 'DER', 'Beta'],
         higherBetter: ['ROE', 'ROA', 'NPM', 'Dividend Yield'],
         notApplicable: ['GPM', 'EV/EBITDA', 'Current Ratio'],
@@ -93,19 +93,49 @@ const H2H_SECTOR_CONFIG = {
             'Rental and recurring income growth',
         ],
     },
-    infrastruktur: {
-        label: 'Infrastructure & Utilities',
+    manufaktur: {
+        label: 'Manufacturing',
         lowerBetter: ['PER', 'EV/EBITDA', 'DER', 'Beta'],
-        higherBetter: ['ROE', 'ROA', 'NPM', 'Dividend Yield'],
-        notApplicable: ['PBV', 'GPM', 'Current Ratio', 'PEG'],
-        derNote: 'High DER is structural for infrastructure — backed by long-tenor project financing',
+        higherBetter: ['ROE', 'ROA', 'NPM', 'GPM'],
+        notApplicable: ['PEG', 'Dividend Yield'],
+        derNote: null,
         betaNote: null,
         catalysts: [
-            'Tariff adjustment approval and regulatory support',
-            'Government infrastructure spending allocation',
-            'Concession renewal pipeline and project backlog',
-            'Renewable energy transition exposure',
-            'Dividend stability and payout policy consistency',
+            'Infrastructure and construction activity driving cement/steel demand',
+            'Import substitution policies and domestic capacity utilization',
+            'Raw material cost (coal, energy) trajectory',
+            'Export competitiveness and currency dynamics',
+            'Product mix premiumization and margin expansion',
+        ],
+    },
+    logistik_transportasi: {
+        label: 'Logistics & Transport',
+        lowerBetter: ['PER', 'EV/EBITDA', 'DER', 'Beta'],
+        higherBetter: ['ROE', 'ROA', 'NPM'],
+        notApplicable: ['PBV', 'GPM', 'PEG'],
+        derNote: 'Moderate leverage common for fleet and infrastructure financing',
+        betaNote: null,
+        catalysts: [
+            'E-commerce volume growth driving last-mile delivery demand',
+            'Fuel cost trajectory (direct operating cost impact)',
+            'Digital logistics platform adoption and route optimization',
+            'New route licenses and fleet expansion capex cycle',
+            'Cold chain and specialized logistics premium margin opportunity',
+        ],
+    },
+    healthcare: {
+        label: 'Healthcare & Pharma',
+        lowerBetter: ['PER', 'PBV', 'DER', 'Beta'],
+        higherBetter: ['ROE', 'ROA', 'NPM', 'GPM', 'Dividend Yield'],
+        notApplicable: ['EV/EBITDA', 'PEG'],
+        derNote: null,
+        betaNote: null,
+        catalysts: [
+            'BPJS/JKN penetration and patient volume growth',
+            'Generic drug competition and patent cliff exposure',
+            'Hospital capacity expansion and occupancy rates',
+            'Aging population driving chronic disease management demand',
+            'Healthcare inflation supporting revenue per patient',
         ],
     },
     _default: {
@@ -1116,9 +1146,9 @@ const App = {
 
     // Q5: Valuation synthesis
     SECTOR_WEIGHTS: {
-        'perbankan':             { dcf: 0.10, pbv: 0.55, ddm: 0.25, roe: 0.10 },
+        'perbankan':             { dcf: 0.10, pbv: 0.60, ddm: 0.20, roe: 0.10 },
         'telekomunikasi':        { dcf: 0.40, pbv: 0.15, ddm: 0.25, roe: 0.20 },
-        'energi_pertambangan':   { dcf: 0.45, pbv: 0.20, ddm: 0.15, roe: 0.20 },
+        'energi_pertambangan':   { dcf: 0.50, pbv: 0.15, ddm: 0.15, roe: 0.20 },
         'consumer_goods':        { dcf: 0.35, pbv: 0.25, ddm: 0.20, roe: 0.20 },
         'manufaktur':            { dcf: 0.40, pbv: 0.25, ddm: 0.15, roe: 0.20 },
         'properti_konstruksi':   { dcf: 0.30, pbv: 0.45, ddm: 0.10, roe: 0.15 },
@@ -1128,31 +1158,56 @@ const App = {
         '_default':              { dcf: 0.35, pbv: 0.25, ddm: 0.20, roe: 0.20 },
     },
 
+    // Sector-specific WACC / growth defaults for Valuation Synthesis
+    // WACC reflects: Indonesian BI rate (~5.75%) + equity risk premium (5–8%) + sector beta adjustment
+    SYNTHESIS_PARAMS: {
+        perbankan:             { wacc: 0.12, growth_rate: 0.08, terminal_growth: 0.04 },
+        telekomunikasi:        { wacc: 0.11, growth_rate: 0.06, terminal_growth: 0.03 },
+        energi_pertambangan:   { wacc: 0.14, growth_rate: 0.05, terminal_growth: 0.02 },
+        consumer_goods:        { wacc: 0.11, growth_rate: 0.09, terminal_growth: 0.04 },
+        manufaktur:            { wacc: 0.12, growth_rate: 0.07, terminal_growth: 0.03 },
+        properti_konstruksi:   { wacc: 0.12, growth_rate: 0.08, terminal_growth: 0.03 },
+        logistik_transportasi: { wacc: 0.12, growth_rate: 0.07, terminal_growth: 0.03 },
+        healthcare:            { wacc: 0.12, growth_rate: 0.10, terminal_growth: 0.04 },
+        teknologi:             { wacc: 0.14, growth_rate: 0.20, terminal_growth: 0.05 },
+        _default:              { wacc: 0.11, growth_rate: 0.10, terminal_growth: 0.03 },
+    },
+
     async _loadValuationSynthesis(ticker) {
         const el = document.getElementById('valuation-synthesis');
         if (!el) return;
         try {
-            const [ind, dcfRes, pbvRes, ddmRes, roeRes] = await Promise.all([
-                this.api('/api/industry', { method: 'POST', body: { ticker } }).catch(() => null),
-                this.api('/api/model/dcf', { method: 'POST', body: { ticker, growth_rate: 0.10, terminal_growth: 0.03, wacc: 0.10, projection_years: 5 } }).catch(() => null),
-                this.api('/api/model/pbv', { method: 'POST', body: { ticker, cost_of_equity: 0.10, terminal_growth: 0.05 } }).catch(() => null),
-                this.api('/api/model/ddm', { method: 'POST', body: { ticker, growth_rate: 0.05, cost_of_equity: 0.10 } }).catch(() => null),
-                this.api('/api/model/roe', { method: 'POST', body: { ticker, cost_of_equity: 0.10 } }).catch(() => null),
-            ]);
-
+            // Phase 1: get sector to determine WACC / growth / model weight defaults
+            const ind = await this.api('/api/industry', { method: 'POST', body: { ticker } }).catch(() => null);
             const industryKey = ind?.industry_key || '_default';
             const sectorLabel = ind?.label || 'General';
+            const p = this.SYNTHESIS_PARAMS[industryKey] || this.SYNTHESIS_PARAMS._default;
             const rawWeights = this.SECTOR_WEIGHTS[industryKey] || this.SECTOR_WEIGHTS['_default'];
+
+            // Phase 2: run all models in parallel with sector-appropriate assumptions
+            const [dcfRes, pbvRes, ddmRes, roeRes] = await Promise.all([
+                this.api('/api/model/dcf', { method: 'POST', body: { ticker, growth_rate: p.growth_rate, terminal_growth: p.terminal_growth, wacc: p.wacc, projection_years: 5 } }).catch(() => null),
+                this.api('/api/model/pbv', { method: 'POST', body: { ticker, cost_of_equity: p.wacc, terminal_growth: p.terminal_growth } }).catch(() => null),
+                this.api('/api/model/ddm', { method: 'POST', body: { ticker, growth_rate: p.terminal_growth, cost_of_equity: p.wacc } }).catch(() => null),
+                this.api('/api/model/roe', { method: 'POST', body: { ticker, cost_of_equity: p.wacc } }).catch(() => null),
+            ]);
 
             // Get current price from DCF result or stored value
             const cp = (dcfRes?.error ? null : dcfRes?.current_price) ?? this._lastCurrentPrice;
             if (cp != null) this._lastCurrentPrice = cp;
 
+            // Filter out errors AND negative intrinsic values (negative FCF / unprofitable stocks)
+            const safeIntrinsic = (res) => {
+                if (!res || res.error) return null;
+                const v = res.intrinsic_per_share;
+                return (v != null && v > 0) ? v : null;
+            };
+
             const models = [
-                { key: 'dcf', label: 'DCF', intrinsic: dcfRes?.error ? null : dcfRes?.intrinsic_per_share, weight: rawWeights.dcf },
-                { key: 'pbv', label: 'PBV', intrinsic: pbvRes?.error ? null : pbvRes?.intrinsic_per_share, weight: rawWeights.pbv },
-                { key: 'ddm', label: 'DDM', intrinsic: ddmRes?.error ? null : ddmRes?.intrinsic_per_share, weight: rawWeights.ddm },
-                { key: 'roe', label: 'ROE Growth', intrinsic: roeRes?.error ? null : roeRes?.intrinsic_per_share, weight: rawWeights.roe },
+                { key: 'dcf', label: 'DCF', intrinsic: safeIntrinsic(dcfRes), weight: rawWeights.dcf },
+                { key: 'pbv', label: 'PBV', intrinsic: safeIntrinsic(pbvRes), weight: rawWeights.pbv },
+                { key: 'ddm', label: 'DDM', intrinsic: safeIntrinsic(ddmRes), weight: rawWeights.ddm },
+                { key: 'roe', label: 'ROE Growth', intrinsic: safeIntrinsic(roeRes), weight: rawWeights.roe },
             ];
 
             // Re-normalize weights for available models only
@@ -1161,13 +1216,13 @@ const App = {
             if (totalW > 0) available.forEach(m => m.normWeight = m.weight / totalW);
             else available.forEach(m => m.normWeight = 1 / available.length);
 
-            el.innerHTML = this._renderValuationSynthesis(models, cp, sectorLabel);
+            el.innerHTML = this._renderValuationSynthesis(models, cp, sectorLabel, p);
         } catch (e) {
             el.innerHTML = '';
         }
     },
 
-    _renderValuationSynthesis(models, currentPrice, sectorLabel) {
+    _renderValuationSynthesis(models, currentPrice, sectorLabel, params = null) {
         const available = models.filter(m => m.intrinsic != null && m.normWeight != null);
         const weightedFV = available.length > 0
             ? available.reduce((s, m) => s + m.intrinsic * m.normWeight, 0)
@@ -1212,7 +1267,7 @@ const App = {
                 <span style="font-size:0.82em;color:var(--text-muted)">Current Price</span>
                 <span style="font-weight:600">${Tables.addSeparator(currentPrice.toFixed(2))}</span>
             </div>` : ''}
-            <p style="color:var(--text-muted);font-size:0.75em;margin-top:10px">Weights auto-set for ${sectorLabel}. Adjust individual model inputs below for custom assumptions.</p>
+            <p style="color:var(--text-muted);font-size:0.75em;margin-top:10px">Weights auto-set for ${sectorLabel}. Default assumptions: WACC ${params ? (params.wacc*100).toFixed(0) : '11'}%, FCF growth ${params ? (params.growth_rate*100).toFixed(0) : '10'}%, terminal growth ${params ? (params.terminal_growth*100).toFixed(0) : '3'}%. Adjust in individual model inputs below.</p>
         </div>`;
     },
 

@@ -599,7 +599,6 @@ def calc_specific_ratios(industry_key: str, ratios: dict, highlights: dict,
             'EBITDA Margin (%)':  ebitda_margin,
             'Revenue Growth (%)': rev_growth,
             'FCF Yield (%)':      fcf_yield,
-            'R&D/Revenue (%)':    None,   # yfinance doesn't expose R&D for most tickers
         },
     }
 

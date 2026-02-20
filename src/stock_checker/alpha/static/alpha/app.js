@@ -97,11 +97,13 @@ const App = {
     async renderDashboard() {
         let watchlistsHtml = '';
         let notesHtml = '';
+        let watchlistTickers = [];
         try {
             const watchlists = await this.api('/api/watchlists');
             if (watchlists.length > 0) {
                 watchlistsHtml = watchlists.map(w => {
                     const tickerList = (w.items || []).map(i => i.ticker).filter(Boolean);
+                    tickerList.forEach(t => { if (!watchlistTickers.includes(t)) watchlistTickers.push(t); });
                     const compareLink = tickerList.length >= 2
                         ? `<button class="btn btn-sm btn-secondary" style="margin-top:8px" onclick="event.stopPropagation();App._compareWatchlist('${tickerList.join(',')}')">Compare All</button>`
                         : '';
@@ -199,6 +201,11 @@ const App = {
                 <div class="ticker-chips">${indexChips}</div>
             </div>
 
+            <div style="margin-bottom:20px">
+                <h3 style="margin-bottom:12px">Market News <span style="font-size:0.8em;font-weight:400;color:var(--text-muted)">— from your watchlists</span></h3>
+                <div id="news-feed"><div class="skeleton skeleton-card" style="height:80px"></div><div class="skeleton skeleton-card" style="height:80px;margin-top:8px"></div></div>
+            </div>
+
             <div class="grid grid-2">
                 <div>
                     <h3 style="margin-bottom:12px">Watchlists</h3>
@@ -278,6 +285,43 @@ const App = {
 
         // Auto-load chart
         this._loadDashChart();
+
+        // Load news feed async (uses watchlist tickers collected above)
+        this._loadDashboardNews(watchlistTickers);
+    },
+
+    async _loadDashboardNews(tickers) {
+        const el = document.getElementById('news-feed');
+        if (!el) return;
+        // Fallback tickers if no watchlists
+        const feedTickers = tickers.length > 0 ? tickers.slice(0, 10)
+            : ['BBCA.JK', 'BBRI.JK', 'TLKM.JK', 'ASII.JK'];
+        try {
+            const articles = await this.api('/api/news', { method: 'POST', body: { tickers: feedTickers } });
+            if (!articles || articles.length === 0) {
+                el.innerHTML = '<div class="empty-state"><p>Tidak ada berita untuk emiten di watchlist Anda.</p></div>';
+                return;
+            }
+            el.innerHTML = articles.map(a => `
+                <a href="${a.url}" target="_blank" rel="noopener" style="display:block;text-decoration:none;color:inherit">
+                    <div class="card" style="display:flex;gap:12px;align-items:flex-start;padding:12px 16px;margin-bottom:8px;transition:background 0.15s" onmouseover="this.style.background='var(--bg-input)'" onmouseout="this.style.background=''">
+                        ${a.thumbnail ? `<img src="${a.thumbnail}" alt="" style="width:64px;height:48px;object-fit:cover;border-radius:var(--radius);flex-shrink:0">` : `<div style="width:64px;height:48px;background:var(--bg-input);border-radius:var(--radius);flex-shrink:0;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:1.2em">📰</div>`}
+                        <div style="flex:1;min-width:0">
+                            <div style="display:flex;gap:8px;align-items:center;margin-bottom:4px;flex-wrap:wrap">
+                                <span class="badge badge-blue" style="font-size:0.7em;cursor:pointer" onclick="event.preventDefault();event.stopPropagation();Router.navigate('#detail/${a.ticker}')">${a.ticker}</span>
+                                <span style="color:var(--text-muted);font-size:0.75em">${a.publisher}</span>
+                                <span style="color:var(--text-muted);font-size:0.75em">• ${a.pub_date}</span>
+                            </div>
+                            <div style="font-weight:600;font-size:0.9em;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${a.title}</div>
+                            ${a.summary ? `<p style="color:var(--text-secondary);font-size:0.8em;margin:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${a.summary}</p>` : ''}
+                        </div>
+                        <div style="color:var(--text-muted);font-size:1em;flex-shrink:0">↗</div>
+                    </div>
+                </a>
+            `).join('');
+        } catch (e) {
+            el.innerHTML = '<div class="empty-state"><p>Gagal memuat berita.</p></div>';
+        }
     },
 
     async _loadDashChart() {
@@ -634,16 +678,23 @@ const App = {
     _lastDetailRatios: null,
     _lastDetailRatioSuffixes: null,
     _pendingTrendCharts: null,
+    _currentDetailTicker: null,
+    _companyInfoLoaded: false,
 
-    // Q1: 4-tab switcher for detail page
+    // Q1: 5-tab switcher for detail page
     _switchDetailTab(tab) {
         this._detailTab = tab;
-        ['overview', 'financials', 'trends', 'valuation'].forEach(t => {
+        ['overview', 'financials', 'trends', 'valuation', 'company'].forEach(t => {
             const panel = document.getElementById(`detail-tab-${t}`);
             const btn = document.getElementById(`dtab-btn-${t}`);
             if (panel) panel.classList.toggle('hidden', t !== tab);
             if (btn) btn.className = `btn btn-sm ${t === tab ? 'btn-primary' : 'btn-secondary'}`;
         });
+        if (tab === 'company' && !this._companyInfoLoaded) {
+            this._companyInfoLoaded = true;
+            const ticker = this._currentDetailTicker;
+            if (ticker) this._loadCompanyInfo(ticker);
+        }
         if (tab === 'trends') {
             // 1. Lazy-render trend charts the first time Trends tab is opened.
             //    Rendering inside display:none gives 0px width; rendering now
@@ -674,7 +725,31 @@ const App = {
         }
     },
 
-    // Q2: Ratio card with N/A filtering
+    // Ratio color-coding signals (green/yellow/red per metric)
+    _ratioSignalColor(key, value) {
+        const v = parseFloat(value);
+        if (!isFinite(v)) return null;
+        const signals = {
+            // Valuation: lower = cheaper = better (green)
+            'PER':         v < 0 ? '#888' : v < 10 ? 'var(--green)' : v < 25 ? '#f5a623' : 'var(--red)',
+            'PBV':         v < 0 ? '#888' : v < 1.5 ? 'var(--green)' : v < 3 ? '#f5a623' : 'var(--red)',
+            'EV/EBITDA':   v < 0 ? '#888' : v < 8 ? 'var(--green)' : v < 15 ? '#f5a623' : 'var(--red)',
+            'PEG':         v < 0 ? '#888' : v < 1 ? 'var(--green)' : v < 2 ? '#f5a623' : 'var(--red)',
+            // Profitability: higher = better (green)
+            'ROE':         v > 15 ? 'var(--green)' : v > 8 ? '#f5a623' : 'var(--red)',
+            'ROA':         v > 5 ? 'var(--green)' : v > 2 ? '#f5a623' : 'var(--red)',
+            'NPM':         v > 10 ? 'var(--green)' : v > 5 ? '#f5a623' : 'var(--red)',
+            'GPM':         v > 30 ? 'var(--green)' : v > 15 ? '#f5a623' : 'var(--red)',
+            // Risk: contextual
+            'Beta':        Math.abs(v) < 1.3 ? 'var(--green)' : Math.abs(v) < 2 ? '#f5a623' : 'var(--red)',
+            'DER':         v < 0.5 ? 'var(--green)' : v < 2 ? '#f5a623' : 'var(--red)',
+            'Current Ratio': v > 2 ? 'var(--green)' : v >= 1 ? '#f5a623' : 'var(--red)',
+            'Dividend Yield': v > 4 ? 'var(--green)' : v > 1 ? '#f5a623' : null,
+        };
+        return signals[key] || null;
+    },
+
+    // Q2: Ratio card with N/A filtering + color coding
     _renderRatioCardHtml(cardId, title, entries, ratioSuffixes) {
         const isExpanded = this._expandedRatioCards.has(cardId);
         const isNA = (v) => v == null || v === undefined || v === 'N/A' || v === '—' || v === '' || !isFinite(parseFloat(v));
@@ -687,7 +762,9 @@ const App = {
             const suffix = ratioSuffixes[k] || '';
             const neg = n < 0;
             const formatted = Tables.addSeparator(Math.abs(n).toFixed(2));
-            return `<span style="${neg ? 'color:var(--red)' : ''}">${neg ? '-' : ''}${formatted}${suffix}</span>`;
+            const sigColor = this._ratioSignalColor(k, v);
+            const colorStyle = sigColor ? `color:${sigColor}` : (neg ? 'color:var(--red)' : '');
+            return `<span style="${colorStyle}">${neg ? '-' : ''}${formatted}${suffix}</span>`;
         };
         let html = `<div class="card"><div class="card-title">${title}</div>`;
         if (displayEntries.length === 0) {
@@ -695,7 +772,9 @@ const App = {
         } else {
             html += '<table class="data-table"><tbody>';
             displayEntries.forEach(([k, v]) => {
-                html += `<tr><td style="color:var(--text-muted);font-size:0.85em">${k}</td><td style="font-weight:600;text-align:right">${fmtRatio(k, v)}</td></tr>`;
+                const sigColor = !isNA(v) ? this._ratioSignalColor(k, v) : null;
+                const rowBg = sigColor ? `background:${sigColor}18;` : '';
+                html += `<tr style="${rowBg}"><td style="color:var(--text-muted);font-size:0.85em">${k}</td><td style="font-weight:600;text-align:right">${fmtRatio(k, v)}</td></tr>`;
             });
             html += '</tbody></table>';
         }
@@ -730,6 +809,126 @@ const App = {
         const container = document.getElementById('ratio-cards-container');
         if (container && this._lastDetailRatios) {
             container.innerHTML = this._buildRatioCardsHtml(this._lastDetailRatios, this._lastDetailRatioSuffixes);
+        }
+    },
+
+    async _loadCompanyInfo(ticker) {
+        const el = document.getElementById('company-info-container');
+        if (!el) return;
+        try {
+            const d = await this.api('/api/company-info', { method: 'POST', body: { ticker } });
+            const ov = d.overview || {};
+            const fv = Tables.formatValue;
+
+            // Overview card
+            const overviewHtml = `<div class="card">
+                <div class="card-title">Company Overview</div>
+                <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px">
+                    ${[
+                        ['Sector', ov.sector || 'N/A'],
+                        ['Industry', ov.industry || 'N/A'],
+                        ['Exchange', ov.exchange || 'N/A'],
+                        ['Employees', ov.employees ? fv(ov.employees, true) : 'N/A'],
+                        ['Location', [ov.city, ov.country].filter(Boolean).join(', ') || 'N/A'],
+                    ].map(([k, v]) => `<div style="background:var(--bg-input);padding:8px 14px;border-radius:var(--radius)">
+                        <div style="font-size:0.72em;color:var(--text-muted)">${k}</div>
+                        <div style="font-weight:600;font-size:0.9em">${v}</div>
+                    </div>`).join('')}
+                    ${ov.website ? `<a href="${ov.website}" target="_blank" rel="noopener" style="display:flex;align-items:center;background:var(--bg-input);padding:8px 14px;border-radius:var(--radius);color:var(--accent);text-decoration:none;font-size:0.85em">🌐 Website ↗</a>` : ''}
+                </div>
+                <p style="color:var(--text-secondary);font-size:0.875em;line-height:1.6">${ov.description || 'Informasi tidak tersedia.'}</p>
+            </div>`;
+
+            // Officers / Board
+            const officers = d.officers || [];
+            const officersHtml = `<div class="card">
+                <div class="card-title">Key People & Management</div>
+                ${officers.length === 0 ? '<p style="color:var(--text-muted);font-size:0.85em">Informasi tidak tersedia.</p>' :
+                    '<table class="data-table"><thead><tr><th>Name</th><th>Title</th><th style="text-align:right">Age</th></tr></thead><tbody>' +
+                    officers.map(o => `<tr>
+                        <td style="font-weight:600;font-size:0.9em">${o.name || '—'}</td>
+                        <td style="font-size:0.82em;color:var(--text-secondary)">${o.title || '—'}</td>
+                        <td style="text-align:right;font-size:0.82em;color:var(--text-muted)">${o.age || '—'}</td>
+                    </tr>`).join('') +
+                    '</tbody></table>'}
+            </div>`;
+
+            // Major holders
+            const majorH = d.major_holders || [];
+            const instH  = d.institutional_holders || [];
+            const holdersHtml = `<div class="grid grid-2" style="margin-top:0">
+                <div class="card">
+                    <div class="card-title">Shareholder Structure</div>
+                    ${majorH.length === 0 ? '<p style="color:var(--text-muted);font-size:0.85em">Informasi tidak tersedia.</p>' :
+                        '<table class="data-table"><tbody>' +
+                        majorH.map(h => `<tr>
+                            <td style="color:var(--text-muted);font-size:0.85em">${h.label}</td>
+                            <td style="font-weight:600;text-align:right">${h.value}</td>
+                        </tr>`).join('') +
+                        '</tbody></table>'}
+                </div>
+                <div class="card">
+                    <div class="card-title">Institutional Holders <span style="font-size:0.78em;font-weight:400;color:var(--text-muted)">(Top 10)</span></div>
+                    ${instH.length === 0 ? '<p style="color:var(--text-muted);font-size:0.85em">Informasi tidak tersedia.</p>' :
+                        '<table class="data-table"><thead><tr><th>Institution</th><th style="text-align:right">%</th></tr></thead><tbody>' +
+                        instH.map(h => {
+                            const isListed = h.holder && /\.(JK|IDX)$/i.test(h.holder.replace(/\s/g, ''));
+                            const name = isListed
+                                ? `<span class="ticker-chip" style="cursor:pointer" onclick="Router.navigate('#detail/${h.holder.replace(/\s/g,'')}')">${h.holder}</span>`
+                                : (h.holder || '—');
+                            const pct = h.pct_held != null ? (h.pct_held < 1 ? (h.pct_held * 100).toFixed(2) + '%' : h.pct_held.toFixed(2) + '%') : '—';
+                            return `<tr><td style="font-size:0.82em">${name}</td><td style="text-align:right;font-size:0.82em;font-weight:600">${pct}</td></tr>`;
+                        }).join('') +
+                        '</tbody></table>'}
+                </div>
+            </div>`;
+
+            // Subsidiaries (placeholder)
+            const subsidiariesHtml = `<div class="card">
+                <div class="card-title">Anak Perusahaan</div>
+                <p style="color:var(--text-muted);font-size:0.875em">${d.subsidiaries_note}</p>
+            </div>`;
+
+            // Corporate Calendar
+            const cal = d.calendar || [];
+            const divs = d.recent_dividends || [];
+            const today = new Date().toISOString().substring(0, 10);
+            const past = cal.filter(e => e.date < today).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5);
+            const future = cal.filter(e => e.date >= today).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 8);
+            const calHtml = `<div class="card">
+                <div class="card-title">Jadwal Korporasi</div>
+                ${cal.length === 0 && divs.length === 0 ? '<p style="color:var(--text-muted);font-size:0.85em">Informasi tidak tersedia.</p>' : `
+                    <div class="grid grid-2" style="margin-top:0">
+                        <div>
+                            <div style="font-size:0.82em;font-weight:600;color:var(--text-secondary);margin-bottom:8px">3 Bulan Terakhir & Historis</div>
+                            ${past.length === 0 && divs.length === 0 ? '<p style="color:var(--text-muted);font-size:0.82em">Tidak ada data.</p>' : `
+                                <table class="data-table"><tbody>
+                                    ${past.map(e => `<tr>
+                                        <td style="font-size:0.8em;color:var(--text-muted)">${e.date}</td>
+                                        <td style="font-size:0.82em">${e.event}</td>
+                                    </tr>`).join('')}
+                                    ${divs.map(dv => `<tr>
+                                        <td style="font-size:0.8em;color:var(--text-muted)">${dv.date}</td>
+                                        <td style="font-size:0.82em">Dividen: ${dv.amount != null ? dv.amount.toFixed(4) : '—'}</td>
+                                    </tr>`).join('')}
+                                </tbody></table>`}
+                        </div>
+                        <div>
+                            <div style="font-size:0.82em;font-weight:600;color:var(--text-secondary);margin-bottom:8px">6 Bulan ke Depan</div>
+                            ${future.length === 0 ? '<p style="color:var(--text-muted);font-size:0.82em">Tidak ada jadwal mendatang.</p>' : `
+                                <table class="data-table"><tbody>
+                                    ${future.map(e => `<tr>
+                                        <td style="font-size:0.8em;color:var(--accent)">${e.date}</td>
+                                        <td style="font-size:0.82em;font-weight:600">${e.event}</td>
+                                    </tr>`).join('')}
+                                </tbody></table>`}
+                        </div>
+                    </div>`}
+            </div>`;
+
+            el.innerHTML = overviewHtml + officersHtml + holdersHtml + subsidiariesHtml + calHtml;
+        } catch (e) {
+            el.innerHTML = `<div class="card"><p style="color:var(--text-muted)">Gagal memuat informasi perusahaan: ${e.message}</p></div>`;
         }
     },
 
@@ -1121,6 +1320,8 @@ const App = {
         this._detailTab = 'overview';
         this._expandedRatioCards = new Set();
         this._pendingTrendCharts = null;
+        this._currentDetailTicker = ticker;
+        this._companyInfoLoaded = false;
         try {
             const [fin, trends] = await Promise.all([
                 this.api('/api/financials', { method: 'POST', body: { ticker } }),
@@ -1183,19 +1384,99 @@ const App = {
             // Q2: Ratio cards (N/A filtered in overview)
             const ratioCardsHtml = this._buildRatioCardsHtml(fin.ratios, ratioSuffixes);
 
-            // Full ratio table for Financials tab (all metrics, unfiltered)
-            const allRatioSections = {
-                'Valuation': ['PER', 'PBV', 'EV/EBITDA', 'PEG'],
-                'Profitability': ['ROE', 'ROA', 'NPM', 'GPM'],
-                'Risk & Leverage': ['Beta', 'DER', 'Current Ratio', 'Dividend Yield'],
+            // Analyst-grade content for Financials tab
+            // Helper: extract latest value from statement dict
+            const _stmtVal = (dict, key) => {
+                const row = dict[key];
+                if (!row) return null;
+                const dates = Object.keys(row).sort().reverse();
+                return dates.length > 0 ? row[dates[0]] : null;
             };
-            let fullRatioHtml = '<div class="card" style="margin-top:0"><div class="card-title">All Ratios</div><div class="grid grid-3">';
-            for (const [cat, keys] of Object.entries(allRatioSections)) {
-                const rawForCat = {};
-                keys.forEach(k => { if (fin.ratios[k] !== undefined) rawForCat[k] = fin.ratios[k]; });
-                fullRatioHtml += `<div><div style="font-size:0.82em;font-weight:600;color:var(--text-secondary);margin-bottom:6px">${cat}</div>${Tables.keyValueRatios(rawForCat, ratioSuffixes)}</div>`;
-            }
-            fullRatioHtml += '</div></div>';
+            const _stmtVals = (dict, key, n = 4) => {
+                const row = dict[key];
+                if (!row) return [];
+                return Object.keys(row).sort().reverse().slice(0, n).map(d => ({ date: d, val: row[d] }));
+            };
+
+            // DuPont decomposition
+            const stmtInc = fin.income_statement || {};
+            const stmtBal = fin.balance_sheet || {};
+            const stmtCF  = fin.cash_flow || {};
+            const rev0 = _stmtVal(stmtInc, 'Total Revenue');
+            const ni0  = _stmtVal(stmtInc, 'Net Income');
+            const ta0  = _stmtVal(stmtBal, 'Total Assets');
+            const ta1  = (() => { const r = _stmtVals(stmtBal, 'Total Assets', 2); return r.length >= 2 ? r[1].val : ta0; })();
+            const eq0  = _stmtVal(stmtBal, 'Stockholders Equity') || _stmtVal(stmtBal, 'Total Equity Gross Minority Interest');
+            const avgTA = (ta0 != null && ta1 != null) ? (ta0 + ta1) / 2 : ta0;
+            const npm_dp   = (rev0 && ni0 != null)  ? ((ni0 / rev0) * 100).toFixed(2) : null;
+            const ato      = (rev0 && avgTA)         ? (rev0 / avgTA).toFixed(3)      : null;
+            const eqMult   = (ta0 != null && eq0)   ? (ta0 / eq0).toFixed(3)          : null;
+            const roe_dp   = (npm_dp && ato && eqMult) ? ((parseFloat(npm_dp)/100) * parseFloat(ato) * parseFloat(eqMult) * 100).toFixed(2) : null;
+
+            const dupontHtml = `<div class="card">
+                <div class="card-title">DuPont Decomposition <span style="font-size:0.8em;color:var(--text-muted)">ROE = Net Margin × Asset Turnover × Equity Multiplier</span></div>
+                <div style="display:flex;gap:0;align-items:center;flex-wrap:wrap">
+                    ${[
+                        ['Net Margin', npm_dp != null ? npm_dp + '%' : 'N/A', 'Profitability driver'],
+                        ['×', '', ''],
+                        ['Asset Turnover', ato != null ? ato + 'x' : 'N/A', 'Efficiency driver'],
+                        ['×', '', ''],
+                        ['Equity Multiplier', eqMult != null ? eqMult + 'x' : 'N/A', 'Leverage driver'],
+                        ['=', '', ''],
+                        ['ROE', roe_dp != null ? roe_dp + '%' : (fin.ratios['ROE'] != null ? fin.ratios['ROE'] + '%' : 'N/A'), 'Implied'],
+                    ].map(([label, val, sub]) => label === '×' || label === '=' ?
+                        `<div style="font-size:1.4em;font-weight:700;color:var(--text-muted);padding:0 8px">${label}</div>` :
+                        `<div style="background:var(--bg-input);border-radius:var(--radius);padding:10px 16px;text-align:center;min-width:110px;flex:1">
+                            <div style="font-size:0.75em;color:var(--text-muted)">${label}</div>
+                            <div style="font-size:1.15em;font-weight:700;color:var(--accent)">${val}</div>
+                            <div style="font-size:0.7em;color:var(--text-muted)">${sub}</div>
+                        </div>`
+                    ).join('')}
+                </div>
+            </div>`;
+
+            // Per-share metrics
+            const eps    = fin.highlights['Basic EPS'];
+            const shares = fin.price_summary.shares_outstanding;
+            const fcf    = fin.highlights['Free Cash Flow'];
+            const bvps   = (eq0 != null && shares) ? eq0 / shares : null;
+            const fcfps  = (fcf != null && shares)  ? fcf / shares  : null;
+            const cfo    = fin.highlights['Operating Cash Flow'];
+            const cfoNi  = (cfo != null && ni0 != null && ni0 !== 0) ? (cfo / ni0).toFixed(2) : null;
+            const ebitda = fin.highlights['EBITDA'];
+            const opInc  = fin.highlights['Operating Income'] || _stmtVal(stmtInc, 'Operating Income');
+            // Approximate interest expense
+            const intExp = _stmtVal(stmtInc, 'Interest Expense') || _stmtVal(stmtInc, 'Net Interest Income');
+            const interestCov = (opInc != null && intExp != null && intExp !== 0) ? (Math.abs(opInc / intExp)).toFixed(2) : null;
+            const totalDebt   = _stmtVal(stmtBal, 'Total Debt');
+            const cash        = _stmtVal(stmtBal, 'Cash And Cash Equivalents') || _stmtVal(stmtBal, 'Cash Cash Equivalents And Short Term Investments');
+            const netDebt     = (totalDebt != null && cash != null) ? totalDebt - cash : null;
+            const ndEbitda    = (netDebt != null && ebitda != null && ebitda !== 0) ? (netDebt / ebitda).toFixed(2) : null;
+
+            const perShareHtml = `<div class="grid grid-2" style="margin-top:0">
+                <div class="card">
+                    <div class="card-title">Per-Share Metrics</div>
+                    <table class="data-table"><tbody>
+                        ${[
+                            ['EPS (Basic)', eps != null ? fv(eps, false, ccy) : 'N/A'],
+                            ['Book Value / Share', bvps != null ? fv(bvps, false, ccy) : 'N/A'],
+                            ['FCF / Share', fcfps != null ? fv(fcfps, false, ccy) : 'N/A'],
+                        ].map(([k, v]) => `<tr><td style="color:var(--text-muted);font-size:0.85em">${k}</td><td style="font-weight:600;text-align:right">${v}</td></tr>`).join('')}
+                    </tbody></table>
+                </div>
+                <div class="card">
+                    <div class="card-title">Earnings Quality & Debt Coverage</div>
+                    <table class="data-table"><tbody>
+                        ${[
+                            ['CFO / Net Income', cfoNi != null ? cfoNi + 'x' : 'N/A', cfoNi != null ? (parseFloat(cfoNi) > 1 ? 'var(--green)' : parseFloat(cfoNi) > 0.7 ? '#f5a623' : 'var(--red)') : null],
+                            ['Interest Coverage', interestCov != null ? interestCov + 'x' : 'N/A', interestCov != null ? (parseFloat(interestCov) > 3 ? 'var(--green)' : parseFloat(interestCov) > 1.5 ? '#f5a623' : 'var(--red)') : null],
+                            ['Net Debt / EBITDA', ndEbitda != null ? ndEbitda + 'x' : 'N/A', ndEbitda != null ? (parseFloat(ndEbitda) < 2 ? 'var(--green)' : parseFloat(ndEbitda) < 4 ? '#f5a623' : 'var(--red)') : null],
+                        ].map(([k, v, c]) => `<tr><td style="color:var(--text-muted);font-size:0.85em">${k}</td><td style="font-weight:600;text-align:right;color:${c || 'inherit'}">${v}</td></tr>`).join('')}
+                    </tbody></table>
+                </div>
+            </div>`;
+
+            const fullRatioHtml = dupontHtml + perShareHtml;
 
             // Anomalies
             let anomalyHtml = '';
@@ -1294,6 +1575,7 @@ const App = {
                     <button id="dtab-btn-financials" class="btn btn-sm btn-secondary" onclick="App._switchDetailTab('financials')">Financials</button>
                     <button id="dtab-btn-trends" class="btn btn-sm btn-secondary" onclick="App._switchDetailTab('trends')">Trends</button>
                     <button id="dtab-btn-valuation" class="btn btn-sm btn-secondary" onclick="App._switchDetailTab('valuation')">Valuation</button>
+                    <button id="dtab-btn-company" class="btn btn-sm btn-secondary" onclick="App._switchDetailTab('company')">Company Info</button>
                 </div>
 
                 <div id="detail-tab-overview">
@@ -1321,6 +1603,13 @@ const App = {
                     <div class="card" style="text-align:center;padding:24px">
                         <p style="color:var(--text-muted);font-size:0.9em;margin-bottom:12px">Run DCF, PBV, DDM, and ROE Growth models for ${ticker}</p>
                         <button class="btn btn-primary" onclick="App._pendingModelTicker='${ticker}'; Router.navigate('#model/${ticker}')">Open Valuation Models →</button>
+                    </div>
+                </div>
+
+                <div id="detail-tab-company" class="hidden">
+                    <div id="company-info-container">
+                        <div class="skeleton skeleton-card" style="height:120px"></div>
+                        <div class="skeleton skeleton-card" style="height:200px;margin-top:8px"></div>
                     </div>
                 </div>
             `);

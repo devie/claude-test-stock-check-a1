@@ -633,6 +633,7 @@ const App = {
     _lastCurrentPrice: null,
     _lastDetailRatios: null,
     _lastDetailRatioSuffixes: null,
+    _pendingTrendCharts: null,
 
     // Q1: 4-tab switcher for detail page
     _switchDetailTab(tab) {
@@ -643,10 +644,33 @@ const App = {
             if (panel) panel.classList.toggle('hidden', t !== tab);
             if (btn) btn.className = `btn btn-sm ${t === tab ? 'btn-primary' : 'btn-secondary'}`;
         });
-        // Plotly charts render at 0px when parent is display:none.
-        // Trigger resize after the tab is visible so charts fill the container.
         if (tab === 'trends') {
-            requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
+            // 1. Lazy-render trend charts the first time Trends tab is opened.
+            //    Rendering inside display:none gives 0px width; rendering now
+            //    (tab is already visible above) gives the correct container size.
+            if (this._pendingTrendCharts) {
+                const { trendMetrics, trends } = this._pendingTrendCharts;
+                this._pendingTrendCharts = null;
+                trendMetrics.forEach((m, i) => {
+                    const td = trends.annual[m].data;
+                    Charts.trendLine(
+                        `trend-chart-${i}`, m,
+                        td.map(d => d.period.substring(0, 10)),
+                        td.map(d => d.value),
+                        td.map(d => d.growth_pct)
+                    );
+                });
+            }
+            // 2. Price chart is async — if it rendered while tab was hidden it
+            //    got 0px width. Read the container's actual clientWidth (now
+            //    visible) and force Plotly to resize to that exact pixel value.
+            setTimeout(() => {
+                const el = document.getElementById('detail-chart-container');
+                if (el && el.data) {
+                    const w = el.clientWidth;
+                    if (w > 0) Plotly.relayout(el, { width: w });
+                }
+            }, 0);
         }
     },
 
@@ -1096,6 +1120,7 @@ const App = {
         // Reset detail tab on new ticker
         this._detailTab = 'overview';
         this._expandedRatioCards = new Set();
+        this._pendingTrendCharts = null;
         try {
             const [fin, trends] = await Promise.all([
                 this.api('/api/financials', { method: 'POST', body: { ticker } }),
@@ -1345,16 +1370,10 @@ const App = {
             this._loadDetailChart(ticker);
             this._loadIndustryCard(ticker);
 
-            // Render trend charts after DOM is ready
-            trendMetrics.forEach((m, i) => {
-                const td = trends.annual[m].data;
-                Charts.trendLine(
-                    `trend-chart-${i}`, m,
-                    td.map(d => d.period.substring(0, 10)),
-                    td.map(d => d.value),
-                    td.map(d => d.growth_pct)
-                );
-            });
+            // Store trend chart data for lazy rendering when Trends tab opens.
+            // Rendering into display:none gives 0px width; defer until visible.
+            this._pendingTrendCharts = trendMetrics.length > 0
+                ? { trendMetrics, trends } : null;
         } catch (e) {
             this.renderError(e.message, () => this.renderDetail(ticker));
         }

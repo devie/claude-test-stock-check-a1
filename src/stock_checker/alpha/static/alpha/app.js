@@ -1,4 +1,130 @@
 /**
+ * Sector-aware configuration for H2H comparison.
+ * Keys match industry_key values returned by /api/industry.
+ */
+const H2H_SECTOR_CONFIG = {
+    perbankan: {
+        label: 'Banking',
+        lowerBetter: ['PER', 'PBV', 'DER', 'Beta'],
+        higherBetter: ['ROE', 'ROA', 'NPM', 'Dividend Yield'],
+        notApplicable: ['GPM', 'Current Ratio', 'EV/EBITDA', 'PEG'],
+        derNote: 'High DER is structurally normal for banks — leverage reflects deposit funding, not distress',
+        betaNote: null,
+        catalysts: [
+            'NIM expansion as interest rate cycle shifts',
+            'Loan growth momentum and credit quality (NPL trend)',
+            'CASA ratio growth — low-cost funding base advantage',
+            'Digital banking adoption and fee income diversification',
+            'Capital adequacy (CAR) buffer above regulatory minimum',
+        ],
+    },
+    telekomunikasi: {
+        label: 'Telecoms',
+        lowerBetter: ['PER', 'EV/EBITDA', 'DER', 'Beta'],
+        higherBetter: ['ROE', 'ROA', 'NPM', 'GPM', 'Dividend Yield'],
+        notApplicable: ['PBV', 'Current Ratio', 'PEG'],
+        derNote: 'Elevated DER is typical for telcos due to network infrastructure capex intensity',
+        betaNote: null,
+        catalysts: [
+            '5G rollout progress and spectrum allocation',
+            'ARPU growth from data monetization',
+            'Tower monetization or infrastructure spinoff value unlock',
+            'Fixed-mobile convergence bundling strategy',
+            'Enterprise B2B and IoT revenue streams',
+        ],
+    },
+    konsumer: {
+        label: 'Consumer / FMCG',
+        lowerBetter: ['PER', 'PBV', 'DER', 'Beta'],
+        higherBetter: ['ROE', 'ROA', 'NPM', 'GPM', 'Dividend Yield', 'Current Ratio'],
+        notApplicable: ['EV/EBITDA', 'PEG'],
+        derNote: null,
+        betaNote: null,
+        catalysts: [
+            'Consumer spending recovery and household purchasing power',
+            'Gross margin expansion from commodity cost normalization',
+            'Distribution channel expansion and modern trade penetration',
+            'Brand portfolio strengthening and premiumization trend',
+            'Export market growth and international diversification',
+        ],
+    },
+    energi_pertambangan: {
+        label: 'Energy & Mining',
+        lowerBetter: ['PER', 'EV/EBITDA', 'DER', 'Beta'],
+        higherBetter: ['ROE', 'ROA', 'NPM', 'GPM', 'Dividend Yield'],
+        notApplicable: ['PBV', 'PEG', 'Current Ratio'],
+        derNote: 'Moderate DER acceptable for resource capex; high leverage amplifies commodity price risk',
+        betaNote: 'Higher beta reflects commodity price sensitivity — normal for the sector',
+        catalysts: [
+            'Commodity price (ASP) trajectory and supply-demand balance',
+            'Production volume growth and reserve replacement rate',
+            'Cash cost / AISC reduction and operational efficiency',
+            'Downstream integration and value-add processing',
+            'Energy transition exposure (coal phase-down vs renewable mix)',
+        ],
+    },
+    teknologi: {
+        label: 'Technology / Digital',
+        lowerBetter: ['PER', 'PBV', 'Beta'],
+        higherBetter: ['ROE', 'ROA', 'NPM', 'GPM'],
+        notApplicable: ['EV/EBITDA', 'DER', 'Current Ratio', 'Dividend Yield'],
+        derNote: null,
+        betaNote: 'Tech stocks typically carry higher beta — focus on growth quality and unit economics over beta',
+        catalysts: [
+            'Revenue growth rate and forward guidance trajectory',
+            'Gross margin expansion and improving unit economics',
+            'CAC/LTV ratio and customer retention metrics',
+            'New product launches and addressable market expansion',
+            'AI integration roadmap and digital ecosystem development',
+        ],
+    },
+    properti: {
+        label: 'Property & Real Estate',
+        lowerBetter: ['PER', 'PBV', 'DER', 'Beta'],
+        higherBetter: ['ROE', 'ROA', 'NPM', 'Dividend Yield'],
+        notApplicable: ['GPM', 'EV/EBITDA', 'Current Ratio'],
+        derNote: 'Elevated DER common in property due to project financing — monitor debt maturity profile',
+        betaNote: null,
+        catalysts: [
+            'Interest rate trajectory (mortgage affordability impact)',
+            'Pre-sales and marketing sales momentum',
+            'Land bank utilization and location quality',
+            'Government incentives (LTV relaxation, subsidized housing)',
+            'Rental and recurring income growth',
+        ],
+    },
+    infrastruktur: {
+        label: 'Infrastructure & Utilities',
+        lowerBetter: ['PER', 'EV/EBITDA', 'DER', 'Beta'],
+        higherBetter: ['ROE', 'ROA', 'NPM', 'Dividend Yield'],
+        notApplicable: ['PBV', 'GPM', 'Current Ratio', 'PEG'],
+        derNote: 'High DER is structural for infrastructure — backed by long-tenor project financing',
+        betaNote: null,
+        catalysts: [
+            'Tariff adjustment approval and regulatory support',
+            'Government infrastructure spending allocation',
+            'Concession renewal pipeline and project backlog',
+            'Renewable energy transition exposure',
+            'Dividend stability and payout policy consistency',
+        ],
+    },
+    _default: {
+        label: 'General',
+        lowerBetter: ['PER', 'PBV', 'EV/EBITDA', 'PEG', 'DER', 'Beta'],
+        higherBetter: ['ROE', 'ROA', 'NPM', 'GPM', 'Current Ratio', 'Dividend Yield'],
+        notApplicable: [],
+        derNote: null,
+        betaNote: null,
+        catalysts: [
+            'Earnings growth trajectory and forward guidance',
+            'Margin improvement and cost discipline',
+            'Sector tailwinds and macro alignment',
+            'Valuation re-rating potential',
+        ],
+    },
+};
+
+/**
  * Stock Alpha - Main SPA Application
  */
 const App = {
@@ -1868,15 +1994,36 @@ const App = {
                 this.api('/api/industry', { method: 'POST', body: { ticker: tB } }).catch(() => null),
             ]);
 
+            // ── Sector config ──────────────────────────────────────────────────────
+            const indKeyA = industryA?.industry_key || '_default';
+            const indKeyB = industryB?.industry_key || '_default';
+            const sectorCfgA = H2H_SECTOR_CONFIG[indKeyA] || H2H_SECTOR_CONFIG._default;
+            const sectorCfgB = H2H_SECTOR_CONFIG[indKeyB] || H2H_SECTOR_CONFIG._default;
+            const sameIndustry = indKeyA === indKeyB && indKeyA !== '_default';
+            // For winner logic: use shared sector config when same industry, else generic
+            const sectorCfg = sameIndustry ? sectorCfgA : H2H_SECTOR_CONFIG._default;
+            const industryLabelA = industryA?.label || sectorCfgA.label;
+            const industryLabelB = industryB?.label || sectorCfgB.label;
+
+            // ── Sector-aware ratio signal ──────────────────────────────────────────
             const _ratioSignal = (metric, vA, vB) => {
-                const lowerBetter = ['PER', 'PBV', 'EV/EBITDA', 'PEG', 'DER', 'Beta'].includes(metric);
+                const ml = metric.toLowerCase();
+                // Mark as not applicable for this sector
+                const isNA = sectorCfg.notApplicable.some(m => ml.includes(m.toLowerCase()));
+                if (isNA) return ['na', 'na'];
                 if (vA == null || vB == null || !isFinite(vA) || !isFinite(vB)) return ['', ''];
                 if (vA === vB) return ['', ''];
-                const aWins = lowerBetter ? vA < vB : vA > vB;
+                // Beta: compare by absolute magnitude (lower = less market risk)
+                if (metric === 'Beta') {
+                    const aWins = Math.abs(vA) < Math.abs(vB);
+                    return aWins ? ['badge-green', 'badge-red'] : ['badge-red', 'badge-green'];
+                }
+                const lB = sectorCfg.lowerBetter.some(m => ml.includes(m.toLowerCase()));
+                const aWins = lB ? vA < vB : vA > vB;
                 return aWins ? ['badge-green', 'badge-red'] : ['badge-red', 'badge-green'];
             };
 
-            // Score gauges side by side
+            // ── Score gauges ───────────────────────────────────────────────────────
             const gaugeRow = (label, sA, sB) => {
                 const fmt = (s) => s != null ? s.toFixed(1) : 'N/A';
                 const colorFor = (s) => s == null ? '#888' : s >= 70 ? '#4caf50' : s >= 50 ? '#ff9800' : '#f44336';
@@ -1906,8 +2053,8 @@ const App = {
                 </tbody></table>
             </div>`;
 
-            // Metrics comparison table
-            const metricsHtml = '<div class="card">' + (() => {
+            // ── Metrics comparison table ───────────────────────────────────────────
+            const metricsHtml = '<div class="card"><div class="card-title">Metric Comparison</div>' + (() => {
                 const largeMets = ['Market Cap'];
                 const pctMets   = ['ROE', 'ROA', 'NPM', 'GPM', 'Dividend Yield'];
                 const ratioMets = ['PER', 'PBV', 'EV/EBITDA', 'PEG', 'DER', 'Current Ratio', 'Beta'];
@@ -1926,6 +2073,10 @@ const App = {
                     const ccyA = compareRes.data[tA]?.currency || '';
                     const ccyB = compareRes.data[tB]?.currency || '';
                     const [clsA, clsB] = _ratioSignal(m, dA, dB);
+                    if (clsA === 'na') {
+                        html += `<tr style="opacity:0.4"><td style="font-style:italic;color:var(--text-muted)">${m}</td><td colspan="3" style="font-size:0.78em;font-style:italic;color:var(--text-muted)">Less relevant for ${sectorCfg.label}</td></tr>`;
+                        return;
+                    }
                     const winner = clsA === 'badge-green' ? tA : clsB === 'badge-green' ? tB : '—';
                     html += `<tr><td>${m}</td><td><span class="${clsA ? 'badge ' + clsA : ''}">${fmtMetric(m, dA, ccyA)}</span></td><td><span class="${clsB ? 'badge ' + clsB : ''}">${fmtMetric(m, dB, ccyB)}</span></td><td style="font-size:0.8em;color:var(--text-muted)">${winner}</td></tr>`;
                 });
@@ -1933,29 +2084,80 @@ const App = {
                 return html;
             })() + '</div>';
 
-            // Verdict
-            const scoreWinner = (sA, sB, label) => {
-                if (sA == null && sB == null) return null;
-                if (sA == null) return `${tB} leads on ${label}`;
-                if (sB == null) return `${tA} leads on ${label}`;
-                if (sA > sB) return `${tA} leads on ${label} (${sA.toFixed(1)} vs ${sB.toFixed(1)})`;
-                if (sB > sA) return `${tB} leads on ${label} (${sB.toFixed(1)} vs ${sA.toFixed(1)})`;
-                return `Tied on ${label}`;
-            };
-            const verdictLines = [
-                scoreWinner(scoresA.quality_score, scoresB.quality_score, 'Quality'),
-                scoreWinner(scoresA.valuation_score, scoresB.valuation_score, 'Valuation'),
-                scoreWinner(scoresA.risk_score, scoresB.risk_score, 'Risk'),
-            ].filter(Boolean);
-            const overallWinner = (scoresA.composite_score ?? 0) > (scoresB.composite_score ?? 0) ? tA : tB;
+            // ── Enhanced verdict ───────────────────────────────────────────────────
+            const compositeA = scoresA.composite_score ?? 0;
+            const compositeB = scoresB.composite_score ?? 0;
+            const overallWinner = compositeA >= compositeB ? tA : tB;
+            const compDiff = Math.abs(compositeA - compositeB);
+
+            const qualA = scoresA.quality_score ?? 0;
+            const qualB = scoresB.quality_score ?? 0;
+            const valA  = scoresA.valuation_score ?? 0;
+            const valB  = scoresB.valuation_score ?? 0;
+            const riskA = scoresA.risk_score ?? 0;
+            const riskB = scoresB.risk_score ?? 0;
+
+            const qualWinner = qualA >= qualB ? tA : tB;
+            const valWinner  = valA  >= valB  ? tA : tB;
+            const riskWinner = riskA >= riskB ? tA : tB;
+
+            const verdictLines = [];
+            // 1. Composite closeness note
+            if (compDiff < 3) {
+                verdictLines.push(`Closely matched — composite scores are nearly equal (${compositeA.toFixed(1)} vs ${compositeB.toFixed(1)}); differentiation requires deeper qualitative research`);
+            }
+            // 2. Quality vs Valuation divergence
+            if (qualWinner !== valWinner) {
+                verdictLines.push(`${qualWinner} scores higher on business quality (${Math.max(qualA,qualB).toFixed(1)}); ${valWinner} appears more attractively valued (${Math.max(valA,valB).toFixed(1)}) — classic quality-vs-value divergence`);
+            } else {
+                verdictLines.push(`${qualWinner} leads on both business quality (${Math.max(qualA,qualB).toFixed(1)}) and valuation attractiveness (${Math.max(valA,valB).toFixed(1)})`);
+            }
+            // 3. Risk
+            verdictLines.push(`${riskWinner} carries lower financial risk (Risk score: ${Math.max(riskA,riskB).toFixed(1)} vs ${Math.min(riskA,riskB).toFixed(1)})`);
+            // 4. Score winner ≠ quality winner edge case
+            if (overallWinner !== qualWinner && compDiff >= 3) {
+                verdictLines.push(`Note: ${overallWinner} leads on composite score despite ${qualWinner} having higher quality — valuation and risk scores are tilting the outcome`);
+            }
+            // 5. Sector leverage context
+            if (sectorCfg.derNote) {
+                verdictLines.push(`Leverage note: ${sectorCfg.derNote}`);
+            }
+            // 6. Beta sector note
+            if (sectorCfg.betaNote) {
+                verdictLines.push(`Beta: ${sectorCfg.betaNote}`);
+            }
+            // 7. Cross-sector flag
+            if (!sameIndustry) {
+                verdictLines.push(`Cross-sector comparison: ${tA} (${industryLabelA}) vs ${tB} (${industryLabelB}) — metrics have different normative benchmarks per sector`);
+            }
+
+            const sectorLabel = sameIndustry ? ` — ${sectorCfg.label}` : '';
             const verdictHtml = `<div class="card" style="border-left:3px solid var(--accent)">
-                <div class="card-title">H2H Verdict</div>
-                <p style="font-size:0.9em;color:var(--text-secondary);margin-bottom:8px"><b>${overallWinner}</b> wins overall on composite score.</p>
-                <ul style="list-style:none;padding:0;margin:0">${verdictLines.map(l => `<li style="font-size:0.85em;color:var(--text-secondary);padding:3px 0;border-bottom:1px solid var(--border)">▸ ${l}</li>`).join('')}</ul>
+                <div class="card-title">H2H Verdict${sectorLabel}</div>
+                <p style="font-size:0.9em;color:var(--text-secondary);margin-bottom:8px"><b>${overallWinner}</b> wins overall on composite score (${Math.max(compositeA,compositeB).toFixed(1)} vs ${Math.min(compositeA,compositeB).toFixed(1)}).</p>
+                <ul style="list-style:none;padding:0;margin:0">${verdictLines.map(l => `<li style="font-size:0.85em;color:var(--text-secondary);padding:4px 0;border-bottom:1px solid var(--border)">▸ ${l}</li>`).join('')}</ul>
+            </div>`;
+
+            // ── Sector Catalysts ───────────────────────────────────────────────────
+            let catalysts, catalystsSubtitle;
+            if (sameIndustry) {
+                catalysts = sectorCfg.catalysts;
+                catalystsSubtitle = `Key drivers for the <b>${sectorCfg.label}</b> sector — both ${tA} and ${tB} are exposed to these; relative performance depends on company-specific execution.`;
+            } else {
+                // Merge catalysts from both sectors, deduplicate, cap at 6
+                const merged = [...sectorCfgA.catalysts.map(c => `[${industryLabelA}] ${c}`),
+                                ...sectorCfgB.catalysts.map(c => `[${industryLabelB}] ${c}`)];
+                catalysts = merged.slice(0, 6);
+                catalystsSubtitle = `Cross-sector comparison — showing catalysts for <b>${industryLabelA}</b> and <b>${industryLabelB}</b> separately.`;
+            }
+            const thesisHtml = `<div class="card">
+                <div class="card-title">Sector Catalysts — Watch List</div>
+                <div style="font-size:0.82em;color:var(--text-muted);margin-bottom:10px">${catalystsSubtitle}</div>
+                <ul style="list-style:none;padding:0;margin:0">${catalysts.map(c => `<li style="font-size:0.85em;color:var(--text-secondary);padding:4px 0;border-bottom:1px solid var(--border)">▸ ${c}</li>`).join('')}</ul>
             </div>`;
 
             const industryHtml = this._renderH2HIndustry(industryA, industryB, tA, tB);
-            resultsDiv.innerHTML = verdictHtml + scoreCard + metricsHtml + industryHtml;
+            resultsDiv.innerHTML = verdictHtml + scoreCard + metricsHtml + thesisHtml + industryHtml;
         } catch (e) {
             resultsDiv.innerHTML = `<div class="card"><p class="val-negative">Error: ${e.message}</p></div>`;
         }

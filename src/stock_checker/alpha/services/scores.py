@@ -38,8 +38,8 @@ def get_scores(symbol):
     except Exception:
         pass
 
-    quality = calc_quality_score(ratios, trends)
-    valuation = calc_valuation_score(ratios)
+    quality = calc_quality_score(ratios, trends, sector=sector_key)
+    valuation = calc_valuation_score(ratios, sector=sector_key)
     risk = calc_risk_score(ratios, sector=sector_key)
     composite = calc_composite_score(
         quality['score'],

@@ -170,6 +170,7 @@ def calc_all_ratios(info, financials=None, balance=None, cashflow=None):
         "PEG": calc_peg(per, eps_growth) if per and eps_growth else None,
         "Beta": _safe(info.get("beta")),
         "Dividend Yield": _safe(info.get("dividendYield")),
+        "P/S": _safe(info.get("priceToSalesTrailing12Months")),
     }
 
     # Fall back to info values if our calculation returned None

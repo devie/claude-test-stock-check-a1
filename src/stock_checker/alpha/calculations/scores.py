@@ -31,21 +31,65 @@ def _weighted_avg(scores_weights):
     return round(total_score / total_weight, 1)
 
 
-def calc_quality_score(ratios, trends):
+# ── Sector-specific quality weights ─────────────────────────────────────────
+# Keys: ROE, ROA, NPM, GPM, Revenue CAGR, NI CAGR, FCF CAGR.
+# Weights sum to 1.0; zero-weight metrics are computed but excluded from score.
+_QUALITY_WEIGHTS = {
+    'perbankan': {
+        # Banks: spread income + fees; Gross Margin is inapplicable.
+        # FCF is not a meaningful concept for deposit-funded lenders.
+        # ROE is the primary efficiency signal (driven by leverage + spread).
+        'ROE': 0.35, 'ROA': 0.25, 'NPM': 0.25, 'GPM': 0.00,
+        'Revenue CAGR': 0.05, 'NI CAGR': 0.10, 'FCF CAGR': 0.00,
+    },
+    'consumer_goods': {
+        # Brand moats and pricing power → Gross Margin is the key quality signal.
+        'ROE': 0.20, 'ROA': 0.10, 'NPM': 0.15, 'GPM': 0.25,
+        'Revenue CAGR': 0.10, 'NI CAGR': 0.10, 'FCF CAGR': 0.10,
+    },
+    'teknologi': {
+        # Platform/network companies: revenue growth dominates over margin.
+        # GPM matters but growth trajectory is the primary quality signal.
+        'ROE': 0.15, 'ROA': 0.10, 'NPM': 0.15, 'GPM': 0.15,
+        'Revenue CAGR': 0.25, 'NI CAGR': 0.10, 'FCF CAGR': 0.10,
+    },
+    'energi_pertambangan': {
+        # Commodity cycles: FCF is cycle-resilient vs earnings (capex + price-aware).
+        # Revenue growth is noisy (driven by commodity prices, not volume alone).
+        'ROE': 0.20, 'ROA': 0.15, 'NPM': 0.20, 'GPM': 0.10,
+        'Revenue CAGR': 0.05, 'NI CAGR': 0.10, 'FCF CAGR': 0.20,
+    },
+}
+
+_QUALITY_DEFAULT = {
+    'ROE': 0.25, 'ROA': 0.15, 'NPM': 0.20, 'GPM': 0.10,
+    'Revenue CAGR': 0.10, 'NI CAGR': 0.10, 'FCF CAGR': 0.10,
+}
+
+
+def calc_quality_score(ratios, trends, sector=None):
     """Compute Quality Score (0-100) from profitability + growth metrics.
 
-    Metrics (higher = better quality):
-      ROE          0-30%     weight 25%
-      ROA          0-15%     weight 15%
-      NPM          0-30%     weight 20%
-      GPM          0-60%     weight 10%
-      Revenue CAGR -10-30%   weight 10%
-      NI CAGR      -10-30%   weight 10%
-      FCF CAGR     -10-30%   weight 10%
+    Normalization ranges (universal):
+      ROE          0-30%     weight varies by sector
+      ROA          0-15%     weight varies by sector
+      NPM          0-30%     weight varies by sector
+      GPM          0-60%     weight varies by sector (0 for banks)
+      Revenue CAGR -10-30%   weight varies by sector
+      NI CAGR      -10-30%   weight varies by sector
+      FCF CAGR     -10-30%   weight varies by sector (0 for banks)
+
+    Sector-specific weights (see _QUALITY_WEIGHTS):
+      perbankan          — GPM/FCF CAGR zeroed; ROE 35%, ROA 25%, NPM 25%
+      consumer_goods     — GPM 25% (brand moat signal)
+      teknologi          — Revenue CAGR 25% (growth dominates)
+      energi_pertambangan — FCF CAGR 20% (cycle-resilient cash generation)
+      all others         — default weights
 
     Args:
         ratios: dict from calc_all_ratios (keys: ROE, ROA, NPM, GPM)
-        trends: dict from get_trends()['annual'] (keys: 'Total Revenue', 'Net Income', 'Free Cash Flow')
+        trends: dict from get_trends() (keys: 'annual' → metric → 'cagr')
+        sector: industry_key string for sector-aware weighting (optional)
 
     Returns:
         dict with score and breakdown
@@ -77,64 +121,166 @@ def calc_quality_score(ratios, trends):
         'FCF CAGR': _norm(fcf_cagr, -10, 30),
     }
 
+    w = _QUALITY_WEIGHTS.get(sector, _QUALITY_DEFAULT)
     score = _weighted_avg([
-        (breakdown['ROE'], 0.25),
-        (breakdown['ROA'], 0.15),
-        (breakdown['NPM'], 0.20),
-        (breakdown['GPM'], 0.10),
-        (breakdown['Revenue CAGR'], 0.10),
-        (breakdown['NI CAGR'], 0.10),
-        (breakdown['FCF CAGR'], 0.10),
+        (breakdown['ROE'],          w['ROE']),
+        (breakdown['ROA'],          w['ROA']),
+        (breakdown['NPM'],          w['NPM']),
+        (breakdown['GPM'],          w['GPM']),
+        (breakdown['Revenue CAGR'], w['Revenue CAGR']),
+        (breakdown['NI CAGR'],      w['NI CAGR']),
+        (breakdown['FCF CAGR'],     w['FCF CAGR']),
     ])
 
     return {'score': score, 'breakdown': breakdown}
 
 
-def calc_valuation_score(ratios):
+def calc_valuation_score(ratios, sector=None):
     """Compute Valuation Score (0-100): cheap = high score.
 
-    Metrics:
+    Default metrics and weights:
       PER       40x→0,  5x→100   weight 30%
       PBV       5x→0,   0.5x→100 weight 25%
       EV/EBITDA 20x→0,  4x→100  weight 25%
       PEG       4x→0,   0.5x→100 weight 20%
 
-    Missing metrics use weighted average of available ones.
+    Sector adjustments:
+      perbankan          — PER range 5-20x; PBV range 0.5-4x;
+                           EV/EBITDA and PEG excluded (not applicable).
+                           Weights: PER 50%, PBV 50%.
+      telekomunikasi     — EV/EBITDA primary (60%); PER 20%, PEG 15%, PBV 5%.
+      energi_pertambangan — EV/EBITDA primary (60%); PER 20%, PBV 10%, PEG 10%.
+      properti_konstruksi — PBV primary (60%, range 0.3-2.0x); PER 25%, EV/EBITDA 15%.
+      teknologi          — P/S (range 3-20x) supplements/replaces PER for pre-profit names.
+                           EV/EBITDA range extended to 30x (tech trades at higher multiples).
+                           Weights: PER 30%, P/S 30%, EV/EBITDA 20%, PBV 10%, PEG 10%.
+
+    Missing metrics use weighted average of available ones (_weighted_avg auto-rebalances).
 
     Args:
-        ratios: dict from calc_all_ratios
+        ratios: dict from calc_all_ratios (includes 'P/S' for teknologi)
+        sector: industry_key string for sector-aware adjustments (optional)
 
     Returns:
         dict with score and breakdown
     """
+    def _norm_inv(v, lo, hi):
+        """Normalize inverted: lo → 100, hi → 0."""
+        if v is None:
+            return None
+        score = (hi - v) / (hi - lo) * 100
+        return max(0.0, min(100.0, score))
+
     per = ratios.get('PER')
     pbv = ratios.get('PBV')
     ev_ebitda = ratios.get('EV/EBITDA')
     peg = ratios.get('PEG')
+    ps = ratios.get('P/S')
 
-    # Invert: lower ratio = higher score
-    def _norm_inv(v, lo, hi):
-        """Normalize inverted: lo = 100, hi = 0."""
-        if v is None:
-            return None
-        # Invert: map hi to 0, lo to 100
-        score = (hi - v) / (hi - lo) * 100
-        return max(0.0, min(100.0, score))
+    # ── Banking ────────────────────────────────────────────────────────────
+    if sector == 'perbankan':
+        # EV/EBITDA not meaningful for deposit-funded institutions.
+        # PBV is the primary metric (franchise premium over book value).
+        # Tighter PER range: banks in emerging markets rarely exceed 20x.
+        per_s = _norm_inv(per, 5, 20) if per is not None and per > 0 else None
+        pbv_s = _norm_inv(pbv, 0.5, 4.0) if pbv is not None and pbv > 0 else None
+        breakdown = {
+            'PER': per_s,
+            'PBV': pbv_s,
+            'EV/EBITDA': None,
+            'PEG': None,
+        }
+        score = _weighted_avg([(per_s, 0.50), (pbv_s, 0.50)])
+        return {'score': score, 'breakdown': breakdown}
 
+    # ── Telco ──────────────────────────────────────────────────────────────
+    if sector == 'telekomunikasi':
+        # Capex-intensive, high EBITDA margin; EV/EBITDA is the primary metric.
+        per_s = _norm_inv(per, 5, 30) if per is not None and per > 0 else None
+        pbv_s = _norm_inv(pbv, 0.5, 5) if pbv is not None and pbv > 0 else None
+        ev_s = _norm_inv(ev_ebitda, 4, 20) if ev_ebitda is not None and ev_ebitda > 0 else None
+        peg_s = _norm_inv(peg, 0.5, 4) if peg is not None and peg > 0 else None
+        breakdown = {
+            'PER': per_s,
+            'PBV': pbv_s,
+            'EV/EBITDA': ev_s,
+            'PEG': peg_s,
+        }
+        score = _weighted_avg([
+            (per_s, 0.20), (pbv_s, 0.05), (ev_s, 0.60), (peg_s, 0.15),
+        ])
+        return {'score': score, 'breakdown': breakdown}
+
+    # ── Mining / Energy ────────────────────────────────────────────────────
+    if sector == 'energi_pertambangan':
+        # Commodity cycles mean EV/EBITDA is the most cycle-adjusted metric.
+        per_s = _norm_inv(per, 5, 30) if per is not None and per > 0 else None
+        pbv_s = _norm_inv(pbv, 0.5, 5) if pbv is not None and pbv > 0 else None
+        ev_s = _norm_inv(ev_ebitda, 4, 20) if ev_ebitda is not None and ev_ebitda > 0 else None
+        peg_s = _norm_inv(peg, 0.5, 4) if peg is not None and peg > 0 else None
+        breakdown = {
+            'PER': per_s,
+            'PBV': pbv_s,
+            'EV/EBITDA': ev_s,
+            'PEG': peg_s,
+        }
+        score = _weighted_avg([
+            (per_s, 0.20), (pbv_s, 0.10), (ev_s, 0.60), (peg_s, 0.10),
+        ])
+        return {'score': score, 'breakdown': breakdown}
+
+    # ── Property / Construction ────────────────────────────────────────────
+    if sector == 'properti_konstruksi':
+        # Land/building assets = book value. PBV is the anchor metric.
+        # Tighter PBV range: IDX property stocks rarely trade above 2x book.
+        per_s = _norm_inv(per, 5, 30) if per is not None and per > 0 else None
+        pbv_s = _norm_inv(pbv, 0.3, 2.0) if pbv is not None and pbv > 0 else None
+        ev_s = _norm_inv(ev_ebitda, 4, 20) if ev_ebitda is not None and ev_ebitda > 0 else None
+        breakdown = {
+            'PER': per_s,
+            'PBV': pbv_s,
+            'EV/EBITDA': ev_s,
+            'PEG': None,
+        }
+        score = _weighted_avg([
+            (per_s, 0.25), (pbv_s, 0.60), (ev_s, 0.15),
+        ])
+        return {'score': score, 'breakdown': breakdown}
+
+    # ── Technology ────────────────────────────────────────────────────────
+    if sector == 'teknologi':
+        # P/S supplements PER for pre-profit names (GOTO, BUKA).
+        # Extended EV/EBITDA range (30x): tech companies trade at higher multiples.
+        per_s = _norm_inv(per, 5, 40) if per is not None and per > 0 else None
+        pbv_s = _norm_inv(pbv, 0.5, 5) if pbv is not None and pbv > 0 else None
+        ev_s = _norm_inv(ev_ebitda, 4, 30) if ev_ebitda is not None and ev_ebitda > 0 else None
+        peg_s = _norm_inv(peg, 0.5, 4) if peg is not None and peg > 0 else None
+        ps_s = _norm_inv(ps, 3, 20) if ps is not None and ps > 0 else None
+        breakdown = {
+            'PER': per_s,
+            'PBV': pbv_s,
+            'EV/EBITDA': ev_s,
+            'PEG': peg_s,
+            'P/S': ps_s,
+        }
+        score = _weighted_avg([
+            (per_s, 0.30), (pbv_s, 0.10), (ev_s, 0.20), (peg_s, 0.10), (ps_s, 0.30),
+        ])
+        return {'score': score, 'breakdown': breakdown}
+
+    # ── Default ────────────────────────────────────────────────────────────
     breakdown = {
         'PER': _norm_inv(per, 5, 40) if per is not None and per > 0 else None,
         'PBV': _norm_inv(pbv, 0.5, 5) if pbv is not None and pbv > 0 else None,
         'EV/EBITDA': _norm_inv(ev_ebitda, 4, 20) if ev_ebitda is not None and ev_ebitda > 0 else None,
         'PEG': _norm_inv(peg, 0.5, 4) if peg is not None and peg > 0 else None,
     }
-
     score = _weighted_avg([
         (breakdown['PER'], 0.30),
         (breakdown['PBV'], 0.25),
         (breakdown['EV/EBITDA'], 0.25),
         (breakdown['PEG'], 0.20),
     ])
-
     return {'score': score, 'breakdown': breakdown}
 
 
@@ -175,8 +321,6 @@ def calc_risk_score(ratios, sector=None):
         # DER ~8–15x is normal; penalising it is analytically incorrect.
         # Current Ratio is not a meaningful concept for deposit-funded institutions.
         # Score is driven entirely by Beta (market risk).
-        der_score = 50.0  # Neutral — structural, not risk signal
-        cr_score = None   # Not applicable
         breakdown = {
             'DER': None,   # Marked as not applicable
             'Beta': round(beta_score, 1) if beta_score is not None else None,

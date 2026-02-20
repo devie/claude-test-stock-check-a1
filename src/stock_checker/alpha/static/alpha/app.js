@@ -815,6 +815,19 @@ const App = {
     async _loadCompanyInfo(ticker) {
         const el = document.getElementById('company-info-container');
         if (!el) return;
+
+        // Format "YYYY-MM-DD" → "2026 February 20"
+        const MONTHS = ['January','February','March','April','May','June',
+                        'July','August','September','October','November','December'];
+        const fmtDate = (s) => {
+            if (!s || s.length < 10) return s || '—';
+            const [y, m, dd] = s.split('-');
+            return `${y} ${MONTHS[parseInt(m, 10) - 1] || m} ${dd}`;
+        };
+
+        // Normalize pct_held: yfinance returns decimal ratios (0.015 = 1.5%)
+        const normPct = (v) => v == null ? null : (v <= 1 ? v * 100 : v);
+
         try {
             const d = await this.api('/api/company-info', { method: 'POST', body: { ticker } });
             const ov = d.overview || {};
@@ -823,12 +836,12 @@ const App = {
             // Overview card
             const overviewHtml = `<div class="card">
                 <div class="card-title">Company Overview</div>
-                <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px">
+                <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">
                     ${[
                         ['Sector', ov.sector || 'N/A'],
                         ['Industry', ov.industry || 'N/A'],
                         ['Exchange', ov.exchange || 'N/A'],
-                        ['Employees', ov.employees ? fv(ov.employees, true) : 'N/A'],
+                        ['Employees', ov.employees ? Number(ov.employees).toLocaleString() : 'N/A'],
                         ['Location', [ov.city, ov.country].filter(Boolean).join(', ') || 'N/A'],
                     ].map(([k, v]) => `<div style="background:var(--bg-input);padding:8px 14px;border-radius:var(--radius)">
                         <div style="font-size:0.72em;color:var(--text-muted)">${k}</div>
@@ -836,14 +849,14 @@ const App = {
                     </div>`).join('')}
                     ${ov.website ? `<a href="${ov.website}" target="_blank" rel="noopener" style="display:flex;align-items:center;background:var(--bg-input);padding:8px 14px;border-radius:var(--radius);color:var(--accent);text-decoration:none;font-size:0.85em">🌐 Website ↗</a>` : ''}
                 </div>
-                <p style="color:var(--text-secondary);font-size:0.875em;line-height:1.6">${ov.description || 'Informasi tidak tersedia.'}</p>
+                <p style="color:var(--text-secondary);font-size:0.875em;line-height:1.6">${ov.description || 'No description available.'}</p>
             </div>`;
 
             // Officers / Board
             const officers = d.officers || [];
             const officersHtml = `<div class="card">
                 <div class="card-title">Key People & Management</div>
-                ${officers.length === 0 ? '<p style="color:var(--text-muted);font-size:0.85em">Informasi tidak tersedia.</p>' :
+                ${officers.length === 0 ? '<p style="color:var(--text-muted);font-size:0.85em">No data available.</p>' :
                     '<table class="data-table"><thead><tr><th>Name</th><th>Title</th><th style="text-align:right">Age</th></tr></thead><tbody>' +
                     officers.map(o => `<tr>
                         <td style="font-weight:600;font-size:0.9em">${o.name || '—'}</td>
@@ -853,72 +866,109 @@ const App = {
                     '</tbody></table>'}
             </div>`;
 
-            // Major holders
+            // Shareholder structure (major_holders) — clean up yfinance verbose labels
             const majorH = d.major_holders || [];
-            const instH  = d.institutional_holders || [];
+            const labelMap = {
+                '% of shares held by all insider': 'Insider Ownership',
+                '% of shares held by institutions': 'Institutional Ownership',
+                '% of float held by institutions': 'Inst. % of Float',
+                'number of institutions holding shares': '# Institutions Holding',
+            };
+            const majorRows = majorH.map(h => {
+                const rawLabel = (h.label || '').toLowerCase().trim();
+                const cleanLbl = labelMap[rawLabel] || h.label;
+                // value is usually a string like "62.42%" or a count like "6"
+                const rawVal = String(h.value || '').trim();
+                const isCount = !rawVal.includes('%') && !rawVal.includes('.');
+                const displayVal = isCount
+                    ? Number(rawVal.replace(/,/g, '')).toLocaleString()
+                    : rawVal;
+                return { label: cleanLbl, value: displayVal };
+            });
+
+            // Institutional holders: normalize pct, sort desc, filter ≥1%, bundle rest
+            const instH = (d.institutional_holders || []).map(h => ({
+                ...h,
+                pct_pct: normPct(h.pct_held),
+            })).sort((a, b) => (b.pct_pct ?? -1) - (a.pct_pct ?? -1));
+
+            const significant = instH.filter(h => h.pct_pct != null && h.pct_pct >= 1);
+            const smallHolders = instH.filter(h => h.pct_pct == null || h.pct_pct < 1);
+            const othersCount = smallHolders.length;
+            const othersTotal = smallHolders.reduce((s, h) => s + (h.pct_pct ?? 0), 0);
+
             const holdersHtml = `<div class="grid grid-2" style="margin-top:0">
                 <div class="card">
                     <div class="card-title">Shareholder Structure</div>
-                    ${majorH.length === 0 ? '<p style="color:var(--text-muted);font-size:0.85em">Informasi tidak tersedia.</p>' :
+                    ${majorRows.length === 0 ? '<p style="color:var(--text-muted);font-size:0.85em">No data available.</p>' :
                         '<table class="data-table"><tbody>' +
-                        majorH.map(h => `<tr>
+                        majorRows.map(h => `<tr>
                             <td style="color:var(--text-muted);font-size:0.85em">${h.label}</td>
                             <td style="font-weight:600;text-align:right">${h.value}</td>
                         </tr>`).join('') +
                         '</tbody></table>'}
                 </div>
                 <div class="card">
-                    <div class="card-title">Institutional Holders <span style="font-size:0.78em;font-weight:400;color:var(--text-muted)">(Top 10)</span></div>
-                    ${instH.length === 0 ? '<p style="color:var(--text-muted);font-size:0.85em">Informasi tidak tersedia.</p>' :
-                        '<table class="data-table"><thead><tr><th>Institution</th><th style="text-align:right">%</th></tr></thead><tbody>' +
-                        instH.map(h => {
+                    <div class="card-title">Institutional Holders <span style="font-size:0.78em;font-weight:400;color:var(--text-muted)">(≥1% stake)</span></div>
+                    ${instH.length === 0 ? '<p style="color:var(--text-muted);font-size:0.85em">No data available.</p>' :
+                        '<table class="data-table"><thead><tr><th>Institution</th><th style="text-align:right">Shares</th><th style="text-align:right">%</th></tr></thead><tbody>' +
+                        significant.map(h => {
                             const isListed = h.holder && /\.(JK|IDX)$/i.test(h.holder.replace(/\s/g, ''));
                             const name = isListed
                                 ? `<span class="ticker-chip" style="cursor:pointer" onclick="Router.navigate('#detail/${h.holder.replace(/\s/g,'')}')">${h.holder}</span>`
                                 : (h.holder || '—');
-                            const pct = h.pct_held != null ? (h.pct_held < 1 ? (h.pct_held * 100).toFixed(2) + '%' : h.pct_held.toFixed(2) + '%') : '—';
-                            return `<tr><td style="font-size:0.82em">${name}</td><td style="text-align:right;font-size:0.82em;font-weight:600">${pct}</td></tr>`;
+                            const sharesStr = h.shares != null ? Tables.addSeparator(Math.round(h.shares).toString()) : '—';
+                            const pctStr = h.pct_pct != null ? h.pct_pct.toFixed(2) + '%' : '—';
+                            return `<tr>
+                                <td style="font-size:0.82em">${name}</td>
+                                <td style="text-align:right;font-size:0.78em;color:var(--text-muted)">${sharesStr}</td>
+                                <td style="text-align:right;font-size:0.82em;font-weight:600">${pctStr}</td>
+                            </tr>`;
                         }).join('') +
+                        (othersCount > 0 ? `<tr style="border-top:1px dashed var(--border)">
+                            <td style="font-size:0.82em;color:var(--text-muted)">Others (${othersCount} holders)</td>
+                            <td></td>
+                            <td style="text-align:right;font-size:0.82em;color:var(--text-muted)">${othersTotal > 0 ? othersTotal.toFixed(2) + '%' : '—'}</td>
+                        </tr>` : '') +
                         '</tbody></table>'}
                 </div>
             </div>`;
 
-            // Subsidiaries (placeholder)
+            // Subsidiaries (English)
             const subsidiariesHtml = `<div class="card">
-                <div class="card-title">Anak Perusahaan</div>
+                <div class="card-title">Subsidiaries</div>
                 <p style="color:var(--text-muted);font-size:0.875em">${d.subsidiaries_note}</p>
             </div>`;
 
-            // Corporate Calendar
+            // Corporate Calendar (English, formatted dates)
             const cal = d.calendar || [];
             const divs = d.recent_dividends || [];
             const today = new Date().toISOString().substring(0, 10);
-            const past = cal.filter(e => e.date < today).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5);
-            const future = cal.filter(e => e.date >= today).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 8);
+            const past = [...cal.filter(e => e.date < today), ...divs.map(dv => ({ event: `Dividend: ${dv.amount != null ? dv.amount.toFixed(4) : '—'}`, date: dv.date }))]
+                .sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8);
+            const future = cal.filter(e => e.date >= today)
+                .sort((a, b) => a.date.localeCompare(b.date)).slice(0, 10);
+
             const calHtml = `<div class="card">
-                <div class="card-title">Jadwal Korporasi</div>
-                ${cal.length === 0 && divs.length === 0 ? '<p style="color:var(--text-muted);font-size:0.85em">Informasi tidak tersedia.</p>' : `
+                <div class="card-title">Corporate Calendar</div>
+                ${cal.length === 0 && divs.length === 0 ? '<p style="color:var(--text-muted);font-size:0.85em">No data available.</p>' : `
                     <div class="grid grid-2" style="margin-top:0">
                         <div>
-                            <div style="font-size:0.82em;font-weight:600;color:var(--text-secondary);margin-bottom:8px">3 Bulan Terakhir & Historis</div>
-                            ${past.length === 0 && divs.length === 0 ? '<p style="color:var(--text-muted);font-size:0.82em">Tidak ada data.</p>' : `
+                            <div style="font-size:0.82em;font-weight:600;color:var(--text-secondary);margin-bottom:8px">Recent Events</div>
+                            ${past.length === 0 ? '<p style="color:var(--text-muted);font-size:0.82em">No recent events.</p>' : `
                                 <table class="data-table"><tbody>
                                     ${past.map(e => `<tr>
-                                        <td style="font-size:0.8em;color:var(--text-muted)">${e.date}</td>
+                                        <td style="font-size:0.78em;color:var(--text-muted);white-space:nowrap">${fmtDate(e.date)}</td>
                                         <td style="font-size:0.82em">${e.event}</td>
-                                    </tr>`).join('')}
-                                    ${divs.map(dv => `<tr>
-                                        <td style="font-size:0.8em;color:var(--text-muted)">${dv.date}</td>
-                                        <td style="font-size:0.82em">Dividen: ${dv.amount != null ? dv.amount.toFixed(4) : '—'}</td>
                                     </tr>`).join('')}
                                 </tbody></table>`}
                         </div>
                         <div>
-                            <div style="font-size:0.82em;font-weight:600;color:var(--text-secondary);margin-bottom:8px">6 Bulan ke Depan</div>
-                            ${future.length === 0 ? '<p style="color:var(--text-muted);font-size:0.82em">Tidak ada jadwal mendatang.</p>' : `
+                            <div style="font-size:0.82em;font-weight:600;color:var(--text-secondary);margin-bottom:8px">Upcoming (Next 6 Months)</div>
+                            ${future.length === 0 ? '<p style="color:var(--text-muted);font-size:0.82em">No upcoming events.</p>' : `
                                 <table class="data-table"><tbody>
                                     ${future.map(e => `<tr>
-                                        <td style="font-size:0.8em;color:var(--accent)">${e.date}</td>
+                                        <td style="font-size:0.78em;color:var(--accent);white-space:nowrap">${fmtDate(e.date)}</td>
                                         <td style="font-size:0.82em;font-weight:600">${e.event}</td>
                                     </tr>`).join('')}
                                 </tbody></table>`}
@@ -928,7 +978,7 @@ const App = {
 
             el.innerHTML = overviewHtml + officersHtml + holdersHtml + subsidiariesHtml + calHtml;
         } catch (e) {
-            el.innerHTML = `<div class="card"><p style="color:var(--text-muted)">Gagal memuat informasi perusahaan: ${e.message}</p></div>`;
+            el.innerHTML = `<div class="card"><p style="color:var(--text-muted)">Failed to load company information: ${e.message}</p></div>`;
         }
     },
 

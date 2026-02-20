@@ -1,0 +1,58 @@
+## Setup Lengkap — devie
+
+### System
+- OS: Windows 11 Home 64-bit (10.0.26200)
+- CPU: 12th Gen Intel i5-12600H
+- RAM: 23.75 GB
+- Disk: 475 GB (C:)
+- Shell: Git Bash (mingw64)
+
+### Dev Tools
+| Tool | Version |
+|---|---|
+| Node.js | v24.13.1 |
+| npm | 11.8.0 |
+| pnpm | 10.29.3 |
+| yarn | 1.22.22 |
+| bun | 1.3.9 |
+| Python | 3.13.12 (MS Store) |
+| pip | 25.3 |
+| uv | 0.10.2 |
+| Git | 2.53.0 |
+| gh CLI | 2.86.0 |
+| Docker | 29.2.0 |
+| VS Code | 1.106.0 |
+| Claude Code | 2.1.42 |
+| cloudflared | 2025.8.1 |
+
+### Git & GitHub
+- User: devie (awaloeddin@gmail.com)
+- SSH: ED25519 key, authenticated dengan GitHub
+- Git LFS: configured
+
+### Project — Stock Checker
+- Repo: https://github.com/devie/claude-test-stock-check-a1
+- Stack: Python 3.12, Flask, yfinance, mplfinance, Plotly.js
+- Package manager: uv
+- Dua entry point:
+  - uv run stock-checker — CLI analisis saham (argparse, output PNG via mplfinance)
+  - uv run stock-checker-web — Web UI di port 5000 (Flask + Plotly interactive charts)
+- Modules: fetcher.py (data), indicators.py (SMA/RSI), plotter.py (chart PNG), app.py (Flask API)
+- CLAUDE.md: sudah dibuat dan di-push
+
+### Cloudflare
+- Account: awaloeddin
+- Domain: zuhdi.id (Free plan, active, Cloudflare DNS)
+- SSL: Full, TLS 1.3
+- Named tunnel: stock-checker (ID: 56e51cbf-df05-4935-b395-923ceb15400d)
+- Live URL: https://stock.zuhdi.id -> localhost:5000
+- Config: ~/.cloudflared/config.yml
+- Jalankan:
+    uv run stock-checker-web              # start web server
+    cloudflared tunnel run stock-checker  # start tunnel
+
+### Status Saat Log Dibuat
+- Web server: running (background)
+- Cloudflare tunnel: running (4 koneksi ke Cloudflare SIN edge)
+- https://stock.zuhdi.id: live
+- Tanggal: 2025-02-15 (session)

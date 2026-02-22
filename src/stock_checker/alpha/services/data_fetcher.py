@@ -63,13 +63,25 @@ def get_history(symbol, period="1y"):
     return hist
 
 
+_MAX_PERIODS = 5
+
+
+def _trim(df):
+    """Drop ghost columns (>80% null) then keep only the most recent _MAX_PERIODS columns."""
+    if df is None or df.empty:
+        return df
+    null_ratio = df.isnull().mean()
+    df = df.loc[:, null_ratio <= 0.8]
+    return df.iloc[:, :_MAX_PERIODS] if len(df.columns) > _MAX_PERIODS else df
+
+
 def get_financials(symbol):
     """Get income statement (annual)."""
     ticker = get_ticker(symbol)
     df = ticker.financials
     if df is None or df.empty:
         return None
-    return df
+    return _trim(df)
 
 
 def get_quarterly_financials(symbol):
@@ -78,7 +90,7 @@ def get_quarterly_financials(symbol):
     df = ticker.quarterly_financials
     if df is None or df.empty:
         return None
-    return df
+    return _trim(df)
 
 
 def get_balance_sheet(symbol):
@@ -87,7 +99,7 @@ def get_balance_sheet(symbol):
     df = ticker.balance_sheet
     if df is None or df.empty:
         return None
-    return df
+    return _trim(df)
 
 
 def get_cashflow(symbol):
@@ -96,7 +108,7 @@ def get_cashflow(symbol):
     df = ticker.cashflow
     if df is None or df.empty:
         return None
-    return df
+    return _trim(df)
 
 
 def get_quarterly_cashflow(symbol):

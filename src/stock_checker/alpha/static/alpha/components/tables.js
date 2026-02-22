@@ -200,6 +200,16 @@ const Tables = {
 
         const uid = 'stmt-' + Math.random().toString(36).substring(2, 8);
 
+        // Auto-detect quarterly: if any year appears more than once among periods
+        const years = periods.map(p => p.substring(0, 4));
+        const isQuarterly = years.length !== new Set(years).size;
+        const periodLabel = (dateStr) => {
+            if (!isQuarterly) return dateStr.substring(0, 4);
+            const month = parseInt(dateStr.substring(5, 7), 10);
+            const q = Math.ceil(month / 3);
+            return `${dateStr.substring(0, 4)}-Q${q}`;
+        };
+
         let html = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
             <div class="card-title" style="margin:0">${title}</div>
             ${keyItems.length > 0 ? `<label style="font-size:0.8em;color:var(--text-secondary);cursor:pointer">
@@ -208,7 +218,7 @@ const Tables = {
         </div>`;
         html += `<div style="overflow-x:auto"><table class="data-table" id="${uid}"><thead><tr><th>Item</th>`;
         for (const p of periods) {
-            html += `<th>${p.substring(0, 4)}</th>`;
+            html += `<th>${periodLabel(p)}</th>`;
         }
         html += '</tr></thead><tbody>';
 

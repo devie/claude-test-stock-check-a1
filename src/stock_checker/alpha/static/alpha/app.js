@@ -3277,7 +3277,10 @@ const App = {
         this.render(`
             <div class="section-header">
                 <h2>Daily Recommendations</h2>
-                <span style="color:var(--text-muted);font-size:0.85em">${tickers.length} ticker${tickers.length > 1 ? 's' : ''} dari watchlist</span>
+                <div style="display:flex;align-items:center;gap:10px">
+                    <span style="color:var(--text-muted);font-size:0.85em">${tickers.length} ticker${tickers.length > 1 ? 's' : ''} dari watchlist</span>
+                    <button class="btn btn-sm btn-secondary" onclick="App.screenshotToClipboard()">Screenshot</button>
+                </div>
             </div>
             <div id="recs-container" style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px">${skeletonCards}</div>
         `);

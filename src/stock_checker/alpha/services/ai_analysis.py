@@ -154,6 +154,20 @@ def _parse_response(text: str) -> list[dict]:
     return json.loads(text)
 
 
+# ── Helpers ───────────────────────────────────────────────────────────────────
+def _is_rate_limit(exc: Exception) -> bool:
+    """Return True if the exception looks like a rate-limit / quota error."""
+    msg = str(exc).lower()
+    try:
+        from openai import RateLimitError
+        if isinstance(exc, RateLimitError):
+            return True
+    except ImportError:
+        pass
+    return any(k in msg for k in ("rate limit", "rate_limit", "429",
+                                  "quota", "too many requests"))
+
+
 # ── Provider calls ────────────────────────────────────────────────────────────
 def _call_openai_compat(base_url: str, api_key: str, model: str,
                         system: str, user: str) -> str:
@@ -242,9 +256,30 @@ def analyze_watchlist(scores: list[dict]) -> list[dict]:
             raw = _call_anthropic(api_key, model, SYSTEM_PROMPT, user_msg)
         else:
             api_key = os.environ.get(cfg.get("key_env") or "", "ollama")
-            raw = _call_openai_compat(cfg["base_url"], api_key, model,
-                                      SYSTEM_PROMPT, user_msg)
+            try:
+                raw = _call_openai_compat(cfg["base_url"], api_key, model,
+                                          SYSTEM_PROMPT, user_msg)
+            except Exception as primary_err:
+                # Auto-fallback to Ollama on rate limit or quota errors
+                if provider != "ollama" and _is_rate_limit(primary_err):
+                    ollama_cfg = _PROVIDER_DEFAULTS["ollama"]
+                    ollama_model = os.environ.get("OLLAMA_MODEL",
+                                                  ollama_cfg["model"])
+                    try:
+                        raw = _call_openai_compat(
+                            ollama_cfg["base_url"], "ollama",
+                            ollama_model, SYSTEM_PROMPT, user_msg,
+                        )
+                    except Exception as ollama_err:
+                        raise RuntimeError(
+                            f"Groq rate-limited dan Ollama juga gagal: "
+                            f"{ollama_err}"
+                        ) from ollama_err
+                else:
+                    raise
     except EnvironmentError:
+        raise
+    except RuntimeError:
         raise
     except Exception as e:
         raise RuntimeError(f"API call ke '{provider}' gagal: {e}") from e

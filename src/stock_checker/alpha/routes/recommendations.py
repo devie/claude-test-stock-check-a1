@@ -2,7 +2,7 @@
 
 from flask import Blueprint, request, jsonify
 from stock_checker.alpha.services.scores import get_scores
-from stock_checker.alpha.services.ai_analysis import analyze_watchlist
+from stock_checker.alpha.services.ai_analysis import analyze_watchlist, get_provider_status
 
 bp = Blueprint("alpha_recommendations", __name__)
 
@@ -51,6 +51,18 @@ def ai_analyze():
         results = analyze_watchlist(scores)
         return jsonify(results)
     except EnvironmentError as e:
-        return jsonify({"error": str(e), "code": "no_api_key"}), 503
+        status = get_provider_status()
+        return jsonify({
+            "error": str(e),
+            "code":  "no_api_key",
+            "provider": status["provider"],
+            "hint":  status["hint"],
+        }), 503
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@bp.route("/api/recommendations/ai-status", methods=["GET"])
+def ai_status():
+    """Return current AI provider config and readiness."""
+    return jsonify(get_provider_status())

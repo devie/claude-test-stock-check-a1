@@ -3275,6 +3275,7 @@ const App = {
         `).join('');
 
         App._recsScores = null;
+        App._recsAiDone = false;
         App._recsLang = App._recsLang || 'id';
         this.render(`
             <div class="section-header">
@@ -3287,7 +3288,7 @@ const App = {
                         <button id="lang-en" onclick="App.setRecsLang('en')"
                             style="padding:3px 9px;background:${App._recsLang==='en'?'var(--accent)':'transparent'};color:${App._recsLang==='en'?'#fff':'var(--text-muted)'};border:none;cursor:pointer;transition:all 0.2s">EN</button>
                     </div>
-                    <button id="btn-ai-analyze" class="btn btn-sm btn-primary" onclick="App.runAIAnalysis()" disabled>✦ AI Analysis</button>
+                    <button id="btn-ai-analyze" class="btn btn-sm btn-primary" onclick="App.runAIAnalysis()" disabled>✦ AI Analysis [${App._recsLang.toUpperCase()}]</button>
                     <button class="btn btn-sm btn-secondary" onclick="App.screenshotToClipboard()">Screenshot</button>
                 </div>
             </div>
@@ -3400,10 +3401,14 @@ const App = {
             container.innerHTML = html;
         }
         const aiBtn = document.getElementById('btn-ai-analyze');
-        if (aiBtn) aiBtn.disabled = false;
+        if (aiBtn) {
+            aiBtn.disabled = false;
+            aiBtn.textContent = `✦ AI Analysis [${(App._recsLang || 'id').toUpperCase()}]`;
+        }
     },
 
     setRecsLang(lang) {
+        if (App._recsLang === lang) return;
         App._recsLang = lang;
         ['id', 'en'].forEach(l => {
             const btn = document.getElementById(`lang-${l}`);
@@ -3412,6 +3417,16 @@ const App = {
                 btn.style.color = l === lang ? '#fff' : 'var(--text-muted)';
             }
         });
+        // If AI was already run, re-run with new language automatically
+        if (App._recsAiDone) {
+            App.runAIAnalysis();
+        } else {
+            // Update button label to show selected language
+            const aiBtn = document.getElementById('btn-ai-analyze');
+            if (aiBtn && !aiBtn.disabled) {
+                aiBtn.textContent = `✦ AI Analysis [${lang.toUpperCase()}]`;
+            }
+        }
     },
 
     // ── AI Analysis ───────────────────────────────────────────────────────────
@@ -3421,7 +3436,7 @@ const App = {
 
         const lang = App._recsLang || 'id';
         const btn = document.getElementById('btn-ai-analyze');
-        if (btn) { btn.disabled = true; btn.textContent = '⏳ Analyzing...'; }
+        if (btn) { btn.disabled = true; btn.textContent = `⏳ Analyzing [${lang.toUpperCase()}]...`; }
 
         const recBadge = {
             'Strong Buy': 'badge-green',
@@ -3475,14 +3490,14 @@ const App = {
             });
         } catch (e) {
             this.toast(`AI Analysis gagal: ${e.message}`, 'error');
-            if (btn) { btn.disabled = false; btn.textContent = '✦ AI Analysis'; }
+            if (btn) { btn.disabled = false; btn.textContent = `✦ AI Analysis [${lang.toUpperCase()}]`; }
             return;
         }
 
         // Handle no_api_key error returned as JSON (503)
         if (aiResults && aiResults.code === 'no_api_key') {
-            this.toast('ANTHROPIC_API_KEY belum diset di server.', 'error');
-            if (btn) { btn.disabled = false; btn.textContent = '✦ AI Analysis'; }
+            this.toast('API key belum diset di server.', 'error');
+            if (btn) { btn.disabled = false; btn.textContent = `✦ AI Analysis [${lang.toUpperCase()}]`; }
             return;
         }
 
@@ -3542,7 +3557,8 @@ const App = {
             container.style.cssText = 'display:grid;grid-template-columns:repeat(2,1fr);gap:12px';
             container.innerHTML = html;
         }
-        if (btn) { btn.disabled = false; btn.textContent = '↺ Refresh AI'; }
+        App._recsAiDone = true;
+        if (btn) { btn.disabled = false; btn.textContent = `↺ Refresh AI [${lang.toUpperCase()}]`; }
         this.toast('AI Analysis selesai', 'success');
     },
 };

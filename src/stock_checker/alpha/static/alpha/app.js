@@ -3226,6 +3226,147 @@ const App = {
             this.toast(`Export failed: ${e.message}`, 'error');
         }
     },
+
+    // ── Daily Recommendations ─────────────────────────────────────────────────
+    async renderRecommendations() {
+        this.showLoading();
+
+        // Collect all unique tickers from watchlists
+        let tickers = [];
+        try {
+            const watchlists = await this.api('/api/watchlists');
+            for (const w of watchlists) {
+                for (const item of (w.items || [])) {
+                    if (item.ticker && !tickers.includes(item.ticker.toUpperCase())) {
+                        tickers.push(item.ticker.toUpperCase());
+                    }
+                }
+            }
+        } catch (e) {
+            this.render(`
+                <div class="section-header"><h2>Daily Recommendations</h2></div>
+                <div class="card"><p class="val-negative">Failed to load watchlists: ${e.message}</p></div>
+            `);
+            this.hideLoading();
+            return;
+        }
+
+        if (tickers.length === 0) {
+            this.render(`
+                <div class="section-header"><h2>Daily Recommendations</h2></div>
+                <div class="empty-state">
+                    <p>No tickers in your watchlists yet.</p>
+                    <button class="btn btn-primary" onclick="Router.navigate('#watchlists')">Go to Watchlists</button>
+                </div>
+            `);
+            this.hideLoading();
+            return;
+        }
+
+        // Show skeleton while fetching scores
+        const skeletonCards = tickers.map(t => `
+            <div class="card" style="margin-bottom:12px">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                    <span class="badge badge-blue">${t}</span>
+                    <div class="skeleton skeleton-text" style="width:70px;height:22px;margin:0;border-radius:4px;background:var(--bg-card-hover)"></div>
+                </div>
+                <div style="height:72px;background:var(--bg-card-hover);border-radius:6px;opacity:0.4"></div>
+            </div>
+        `).join('');
+
+        this.render(`
+            <div class="section-header">
+                <h2>Daily Recommendations</h2>
+                <span style="color:var(--text-muted);font-size:0.85em">${tickers.length} ticker${tickers.length > 1 ? 's' : ''} dari watchlist</span>
+            </div>
+            <div id="recs-container">${skeletonCards}</div>
+        `);
+        this.hideLoading();
+
+        // Fetch batch scores
+        let scores = [];
+        try {
+            scores = await this.api('/api/scores/batch', {
+                method: 'POST',
+                body: { tickers },
+            });
+        } catch (e) {
+            const c = document.getElementById('recs-container');
+            if (c) c.innerHTML = `<div class="card"><p class="val-negative">Failed to load scores: ${e.message}</p></div>`;
+            return;
+        }
+
+        // Sort: Strong Buy → Buy → Hold → Avoid → error, then by composite desc
+        const recOrder = { 'Strong Buy': 0, 'Buy': 1, 'Hold': 2, 'Avoid': 3 };
+        scores.sort((a, b) => {
+            const oa = a.error ? 99 : (recOrder[a.recommendation] ?? 50);
+            const ob = b.error ? 99 : (recOrder[b.recommendation] ?? 50);
+            if (oa !== ob) return oa - ob;
+            return (b.composite_score ?? 0) - (a.composite_score ?? 0);
+        });
+
+        const recBadge = {
+            'Strong Buy': 'badge-green',
+            'Buy':        'badge-green',
+            'Hold':       'badge-orange',
+            'Avoid':      'badge-red',
+        };
+        const scoreColor = (s) =>
+            s == null ? 'var(--text-muted)' : s >= 70 ? '#4caf50' : s >= 50 ? '#ff9800' : '#f44336';
+
+        const miniBar = (label, score) => {
+            const pct = score == null ? 0 : Math.max(0, Math.min(100, score));
+            const color = scoreColor(score);
+            const valStr = score == null
+                ? `<span style="color:var(--text-muted);font-size:0.78em">N/A</span>`
+                : `<span style="font-size:0.78em;font-weight:600;color:${color}">${pct.toFixed(0)}</span>`;
+            return `
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">
+                <span style="font-size:0.75em;color:var(--text-muted);width:72px;flex-shrink:0">${label}</span>
+                <div style="flex:1;height:5px;background:var(--bg-input);border-radius:3px;overflow:hidden">
+                    <div style="height:100%;width:${pct}%;background:${color};border-radius:3px;transition:width 0.4s ease"></div>
+                </div>
+                ${valStr}
+            </div>`;
+        };
+
+        const html = scores.map(sc => {
+            if (sc.error) {
+                return `
+                <div class="card" style="margin-bottom:12px;opacity:0.55;cursor:pointer"
+                     onclick="Router.navigate('#detail/${sc.ticker}')">
+                    <div style="display:flex;justify-content:space-between;align-items:center">
+                        <span class="badge badge-blue">${sc.ticker}</span>
+                        <span style="color:var(--text-muted);font-size:0.8em">Data tidak tersedia</span>
+                    </div>
+                </div>`;
+            }
+            const rec = sc.recommendation;
+            const recClass = recBadge[rec] || 'badge-blue';
+            const composite = sc.composite_score;
+            return `
+            <div class="card" style="margin-bottom:12px;cursor:pointer;transition:background 0.15s"
+                 onmouseenter="this.style.background='var(--bg-card-hover)'"
+                 onmouseleave="this.style.background=''"
+                 onclick="Router.navigate('#detail/${sc.ticker}')">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+                    <span class="badge badge-blue" style="font-size:0.9em">${sc.ticker}</span>
+                    <div style="display:flex;align-items:center;gap:10px">
+                        ${composite != null
+                            ? `<span style="font-size:0.88em;color:${scoreColor(composite)};font-weight:700">${composite.toFixed(1)}<span style="font-size:0.8em;color:var(--text-muted)"> / 100</span></span>`
+                            : ''}
+                        ${rec ? `<span class="badge ${recClass}">${rec}</span>` : ''}
+                    </div>
+                </div>
+                ${miniBar('Quality',   sc.quality_score)}
+                ${miniBar('Valuation', sc.valuation_score)}
+                ${miniBar('Risk',      sc.risk_score)}
+            </div>`;
+        }).join('');
+
+        const container = document.getElementById('recs-container');
+        if (container) container.innerHTML = html;
+    },
 };
 
 // ====== INIT ======
@@ -3237,6 +3378,7 @@ document.addEventListener('DOMContentLoaded', () => {
     Router.register('model', (ticker) => App.renderModel(ticker));
     Router.register('notes', () => App.renderNotes());
     Router.register('watchlists', () => App.renderWatchlists());
+    Router.register('recommendations', () => App.renderRecommendations());
 
     // Global ticker search
     document.getElementById('btn-go-detail').onclick = () => {

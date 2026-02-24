@@ -90,17 +90,17 @@ def get_financial_analysis(symbol):
 
     if balance is not None and not balance.empty:
         try:
-            receivables = balance.loc.get("Net Receivables")
+            receivables = balance.loc["Net Receivables"] if "Net Receivables" in balance.index else None
             if receivables is not None and len(receivables) >= 2:
                 rec_vals = [_safe(v) for v in receivables.values]
                 anomaly_data["receivables_growth"] = calc_yoy_growth(rec_vals[0], rec_vals[1])
-        except (KeyError, IndexError, AttributeError):
+        except (KeyError, IndexError):
             pass
 
         # DER for leverage check
         try:
-            debt = balance.loc.get("Total Debt")
-            equity = balance.loc.get("Stockholders Equity")
+            debt   = balance.loc["Total Debt"]          if "Total Debt"          in balance.index else None
+            equity = balance.loc["Stockholders Equity"] if "Stockholders Equity" in balance.index else None
             if debt is not None and equity is not None:
                 d_val = _safe(debt.iloc[0])
                 e_val = _safe(equity.iloc[0])

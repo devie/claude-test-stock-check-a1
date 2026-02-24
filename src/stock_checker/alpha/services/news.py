@@ -110,7 +110,7 @@ def _parse_news_item(item, symbol):
         }
 
 
-def get_news(tickers, max_articles=15, max_per_ticker=2, days=7):
+def get_news(tickers, max_articles=5, max_per_ticker=1, days=7):
     """Fetch and aggregate news articles for a list of tickers.
 
     Rules:

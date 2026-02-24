@@ -3274,11 +3274,13 @@ const App = {
             </div>
         `).join('');
 
+        App._recsScores = null;
         this.render(`
             <div class="section-header">
                 <h2>Daily Recommendations</h2>
                 <div style="display:flex;align-items:center;gap:10px">
                     <span style="color:var(--text-muted);font-size:0.85em">${tickers.length} ticker${tickers.length > 1 ? 's' : ''} dari watchlist</span>
+                    <button id="btn-ai-analyze" class="btn btn-sm btn-primary" onclick="App.runAIAnalysis()" disabled>✦ AI Analysis</button>
                     <button class="btn btn-sm btn-secondary" onclick="App.screenshotToClipboard()">Screenshot</button>
                 </div>
             </div>
@@ -3367,11 +3369,124 @@ const App = {
             </div>`;
         }).join('');
 
+        App._recsScores = scores;
         const container = document.getElementById('recs-container');
         if (container) {
             container.style.cssText = 'display:grid;grid-template-columns:repeat(2,1fr);gap:12px';
             container.innerHTML = html;
         }
+        const aiBtn = document.getElementById('btn-ai-analyze');
+        if (aiBtn) aiBtn.disabled = false;
+    },
+
+    // ── AI Analysis ───────────────────────────────────────────────────────────
+    async runAIAnalysis() {
+        const scores = App._recsScores;
+        if (!scores || scores.length === 0) return;
+
+        const btn = document.getElementById('btn-ai-analyze');
+        if (btn) { btn.disabled = true; btn.textContent = '⏳ Analyzing...'; }
+
+        const recBadge = {
+            'Strong Buy': 'badge-green',
+            'Buy':        'badge-green',
+            'Hold':       'badge-orange',
+            'Avoid':      'badge-red',
+        };
+        const scoreColor = (s) =>
+            s == null ? 'var(--text-muted)' : s >= 70 ? '#4caf50' : s >= 50 ? '#ff9800' : '#f44336';
+
+        const miniBar = (label, score) => {
+            const pct = score == null ? 0 : Math.max(0, Math.min(100, score));
+            const color = scoreColor(score);
+            const valStr = score == null
+                ? `<span style="color:var(--text-muted);font-size:0.78em">N/A</span>`
+                : `<span style="font-size:0.78em;font-weight:600;color:${color}">${pct.toFixed(0)}</span>`;
+            return `
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">
+                <span style="font-size:0.75em;color:var(--text-muted);width:72px;flex-shrink:0">${label}</span>
+                <div style="flex:1;height:5px;background:var(--bg-input);border-radius:3px;overflow:hidden">
+                    <div style="height:100%;width:${pct}%;background:${color};border-radius:3px;transition:width 0.4s ease"></div>
+                </div>
+                ${valStr}
+            </div>`;
+        };
+
+        let aiResults;
+        try {
+            aiResults = await this.api('/api/recommendations/ai-analyze', {
+                method: 'POST',
+                body: { scores },
+            });
+        } catch (e) {
+            this.toast(`AI Analysis gagal: ${e.message}`, 'error');
+            if (btn) { btn.disabled = false; btn.textContent = '✦ AI Analysis'; }
+            return;
+        }
+
+        // Handle no_api_key error returned as JSON (503)
+        if (aiResults && aiResults.code === 'no_api_key') {
+            this.toast('ANTHROPIC_API_KEY belum diset di server.', 'error');
+            if (btn) { btn.disabled = false; btn.textContent = '✦ AI Analysis'; }
+            return;
+        }
+
+        // Sort AI results same way: Strong Buy → Buy → Hold → Avoid
+        const recOrder = { 'Strong Buy': 0, 'Buy': 1, 'Hold': 2, 'Avoid': 3 };
+        aiResults.sort((a, b) => {
+            const oa = recOrder[a.recommendation] ?? 50;
+            const ob = recOrder[b.recommendation] ?? 50;
+            if (oa !== ob) return oa - ob;
+            return (b.composite ?? 0) - (a.composite ?? 0);
+        });
+
+        // Build original rec map for change indicator
+        const origRec = Object.fromEntries(scores.map(s => [s.ticker, s.recommendation]));
+
+        const html = aiResults.map(ai => {
+            const rec = ai.recommendation;
+            const recClass = recBadge[rec] || 'badge-blue';
+            const composite = ai.composite;
+            const orig = origRec[ai.ticker];
+            const changed = orig && orig !== rec;
+            const changeBadge = changed
+                ? `<span style="font-size:0.7em;color:var(--text-muted);text-decoration:line-through;margin-right:4px">${orig}</span>`
+                : '';
+            return `
+            <div class="card" style="cursor:pointer;transition:background 0.15s"
+                 onmouseenter="this.style.background='var(--bg-card-hover)'"
+                 onmouseleave="this.style.background=''"
+                 onclick="Router.navigate('#detail/${ai.ticker}')">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+                    <div style="display:flex;align-items:center;gap:6px">
+                        <span class="badge badge-blue" style="font-size:0.9em">${ai.ticker}</span>
+                        <span style="font-size:0.65em;padding:2px 5px;border-radius:3px;background:rgba(99,102,241,0.15);color:#818cf8;font-weight:600">AI</span>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:8px">
+                        ${composite != null
+                            ? `<span style="font-size:0.88em;color:${scoreColor(composite)};font-weight:700">${composite.toFixed(1)}<span style="font-size:0.8em;color:var(--text-muted)"> / 100</span></span>`
+                            : ''}
+                        ${changeBadge}
+                        ${rec ? `<span class="badge ${recClass}">${rec}</span>` : ''}
+                    </div>
+                </div>
+                ${miniBar('Quality',   ai.quality)}
+                ${miniBar('Valuation', ai.valuation)}
+                ${miniBar('Risk',      ai.risk)}
+                ${ai.narrative ? `
+                <div style="margin-top:10px;padding:8px 10px;background:rgba(99,102,241,0.07);border-left:2px solid rgba(99,102,241,0.4);border-radius:0 4px 4px 0;font-size:0.78em;color:var(--text-secondary);line-height:1.5">
+                    ${ai.narrative}
+                </div>` : ''}
+            </div>`;
+        }).join('');
+
+        const container = document.getElementById('recs-container');
+        if (container) {
+            container.style.cssText = 'display:grid;grid-template-columns:repeat(2,1fr);gap:12px';
+            container.innerHTML = html;
+        }
+        if (btn) { btn.disabled = false; btn.textContent = '↺ Refresh AI'; }
+        this.toast('AI Analysis selesai', 'success');
     },
 };
 

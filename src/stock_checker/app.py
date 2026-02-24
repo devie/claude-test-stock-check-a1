@@ -7,6 +7,13 @@ from pathlib import Path
 import numpy as np
 from flask import Flask, render_template, request, jsonify
 
+# Load .env if present (ANTHROPIC_API_KEY etc.)
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 from stock_checker.fetcher import fetch_stock
 from stock_checker.indicators import calc_sma, calc_rsi, get_summary, format_number
 from stock_checker.alpha import init_alpha

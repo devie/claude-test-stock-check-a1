@@ -3265,10 +3265,10 @@ const App = {
 
         // Show skeleton while fetching scores
         const skeletonCards = tickers.map(t => `
-            <div class="card" style="margin-bottom:12px">
+            <div class="card">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
                     <span class="badge badge-blue">${t}</span>
-                    <div class="skeleton skeleton-text" style="width:70px;height:22px;margin:0;border-radius:4px;background:var(--bg-card-hover)"></div>
+                    <div style="width:70px;height:22px;border-radius:4px;background:var(--bg-card-hover)"></div>
                 </div>
                 <div style="height:72px;background:var(--bg-card-hover);border-radius:6px;opacity:0.4"></div>
             </div>
@@ -3279,7 +3279,7 @@ const App = {
                 <h2>Daily Recommendations</h2>
                 <span style="color:var(--text-muted);font-size:0.85em">${tickers.length} ticker${tickers.length > 1 ? 's' : ''} dari watchlist</span>
             </div>
-            <div id="recs-container">${skeletonCards}</div>
+            <div id="recs-container" style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px">${skeletonCards}</div>
         `);
         this.hideLoading();
 
@@ -3333,7 +3333,7 @@ const App = {
         const html = scores.map(sc => {
             if (sc.error) {
                 return `
-                <div class="card" style="margin-bottom:12px;opacity:0.55;cursor:pointer"
+                <div class="card" style="opacity:0.55;cursor:pointer"
                      onclick="Router.navigate('#detail/${sc.ticker}')">
                     <div style="display:flex;justify-content:space-between;align-items:center">
                         <span class="badge badge-blue">${sc.ticker}</span>
@@ -3345,7 +3345,7 @@ const App = {
             const recClass = recBadge[rec] || 'badge-blue';
             const composite = sc.composite_score;
             return `
-            <div class="card" style="margin-bottom:12px;cursor:pointer;transition:background 0.15s"
+            <div class="card" style="cursor:pointer;transition:background 0.15s"
                  onmouseenter="this.style.background='var(--bg-card-hover)'"
                  onmouseleave="this.style.background=''"
                  onclick="Router.navigate('#detail/${sc.ticker}')">
@@ -3365,7 +3365,10 @@ const App = {
         }).join('');
 
         const container = document.getElementById('recs-container');
-        if (container) container.innerHTML = html;
+        if (container) {
+            container.style.cssText = 'display:grid;grid-template-columns:repeat(2,1fr);gap:12px';
+            container.innerHTML = html;
+        }
     },
 };
 

@@ -3343,19 +3343,42 @@ const App = {
             </div>`;
         };
 
-        const pbvChip = (pbv) => {
-            if (pbv == null) return '';
-            const { color, label } = pbv <= 0 ? { color: '#888', label: 'N/A' }
-                : pbv < 1   ? { color: '#4caf50', label: 'Very Cheap' }
-                : pbv < 2   ? { color: '#8bc34a', label: 'Cheap' }
-                : pbv < 4   ? { color: '#ff9800', label: 'Fair' }
-                : pbv < 7   ? { color: '#ff5722', label: 'Expensive' }
-                :              { color: '#f44336', label: 'Very Expensive' };
+        const _bandColor = (v, thresholds) => {
+            if (v == null || v <= 0) return { color: '#888', label: 'N/A' };
+            for (const [max, color, label] of thresholds)
+                if (v < max) return { color, label };
+            return thresholds[thresholds.length - 1].slice(1);
+        };
+        const _chip = (metricLabel, v, thresholds, decimals = 2) => {
+            if (v == null || v <= 0) return '';
+            const { color, label } = _bandColor(v, thresholds);
+            return `<div style="display:flex;align-items:center;gap:5px;flex-shrink:0">
+                <span style="font-size:0.72em;color:var(--text-muted)">${metricLabel}</span>
+                <span style="font-size:0.82em;font-weight:700;color:${color}">${v.toFixed(decimals)}x</span>
+                <span style="font-size:0.67em;padding:1px 6px;border-radius:10px;background:${color}22;color:${color};font-weight:600">${label}</span>
+            </div>`;
+        };
+        const PBV_BANDS = [
+            [1,  '#4caf50', 'Very Cheap'],
+            [2,  '#8bc34a', 'Cheap'],
+            [4,  '#ff9800', 'Fair'],
+            [7,  '#ff5722', 'Expensive'],
+            [Infinity, '#f44336', 'Very Expensive'],
+        ];
+        const EV_BANDS = [
+            [6,  '#4caf50', 'Very Cheap'],
+            [10, '#8bc34a', 'Cheap'],
+            [15, '#ff9800', 'Fair'],
+            [20, '#ff5722', 'Expensive'],
+            [Infinity, '#f44336', 'Very Expensive'],
+        ];
+        const valuationRow = (pbv, evEbitda) => {
+            const pbvHtml = _chip('PBV', pbv, PBV_BANDS, 2);
+            const evHtml  = _chip('EV/EBITDA', evEbitda, EV_BANDS, 1);
+            if (!pbvHtml && !evHtml) return '';
             return `
-            <div style="display:flex;align-items:center;gap:6px;margin-top:7px;padding-top:7px;border-top:1px solid rgba(255,255,255,0.06)">
-                <span style="font-size:0.72em;color:var(--text-muted);flex-shrink:0">PBV</span>
-                <span style="font-size:0.84em;font-weight:700;color:${color}">${pbv.toFixed(2)}x</span>
-                <span style="font-size:0.68em;padding:1px 6px;border-radius:10px;background:${color}22;color:${color};font-weight:600;letter-spacing:0.02em">${label}</span>
+            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:7px;padding-top:7px;border-top:1px solid rgba(255,255,255,0.06)">
+                ${pbvHtml}${evHtml}
             </div>`;
         };
 
@@ -3390,7 +3413,7 @@ const App = {
                 ${miniBar('Quality',   sc.quality_score)}
                 ${miniBar('Valuation', sc.valuation_score)}
                 ${miniBar('Risk',      sc.risk_score)}
-                ${pbvChip(sc.pbv)}
+                ${valuationRow(sc.pbv, sc.ev_ebitda)}
             </div>`;
         }).join('');
 
@@ -3463,24 +3486,32 @@ const App = {
             </div>`;
         };
 
-        const pbvChip = (pbv) => {
-            if (pbv == null) return '';
-            const { color, label } = pbv <= 0 ? { color: '#888', label: 'N/A' }
-                : pbv < 1   ? { color: '#4caf50', label: 'Very Cheap' }
-                : pbv < 2   ? { color: '#8bc34a', label: 'Cheap' }
-                : pbv < 4   ? { color: '#ff9800', label: 'Fair' }
-                : pbv < 7   ? { color: '#ff5722', label: 'Expensive' }
-                :              { color: '#f44336', label: 'Very Expensive' };
-            return `
-            <div style="display:flex;align-items:center;gap:6px;margin-top:7px;padding-top:7px;border-top:1px solid rgba(255,255,255,0.06)">
-                <span style="font-size:0.72em;color:var(--text-muted);flex-shrink:0">PBV</span>
-                <span style="font-size:0.84em;font-weight:700;color:${color}">${pbv.toFixed(2)}x</span>
-                <span style="font-size:0.68em;padding:1px 6px;border-radius:10px;background:${color}22;color:${color};font-weight:600;letter-spacing:0.02em">${label}</span>
+        const _bandColor2 = (v, thresholds) => {
+            if (v == null || v <= 0) return { color: '#888', label: 'N/A' };
+            for (const [max, color, label] of thresholds)
+                if (v < max) return { color, label };
+            return thresholds[thresholds.length - 1].slice(1);
+        };
+        const _chip2 = (metricLabel, v, thresholds, decimals = 2) => {
+            if (v == null || v <= 0) return '';
+            const { color, label } = _bandColor2(v, thresholds);
+            return `<div style="display:flex;align-items:center;gap:5px;flex-shrink:0">
+                <span style="font-size:0.72em;color:var(--text-muted)">${metricLabel}</span>
+                <span style="font-size:0.82em;font-weight:700;color:${color}">${v.toFixed(decimals)}x</span>
+                <span style="font-size:0.67em;padding:1px 6px;border-radius:10px;background:${color}22;color:${color};font-weight:600">${label}</span>
             </div>`;
         };
+        const PBV_BANDS2  = [[1,'#4caf50','Very Cheap'],[2,'#8bc34a','Cheap'],[4,'#ff9800','Fair'],[7,'#ff5722','Expensive'],[Infinity,'#f44336','Very Expensive']];
+        const EV_BANDS2   = [[6,'#4caf50','Very Cheap'],[10,'#8bc34a','Cheap'],[15,'#ff9800','Fair'],[20,'#ff5722','Expensive'],[Infinity,'#f44336','Very Expensive']];
+        const valuationRow2 = (pbv, evEbitda) => {
+            const pbvHtml = _chip2('PBV', pbv, PBV_BANDS2, 2);
+            const evHtml  = _chip2('EV/EBITDA', evEbitda, EV_BANDS2, 1);
+            if (!pbvHtml && !evHtml) return '';
+            return `<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:7px;padding-top:7px;border-top:1px solid rgba(255,255,255,0.06)">${pbvHtml}${evHtml}</div>`;
+        };
 
-        // Original PBV map so AI cards can still show it
-        const origPBV = Object.fromEntries(scores.map(s => [s.ticker, s.pbv ?? null]));
+        // Original valuation map so AI cards can still show it
+        const origVal = Object.fromEntries(scores.map(s => [s.ticker, { pbv: s.pbv ?? null, ev: s.ev_ebitda ?? null }]));
 
         let aiResults;
         try {
@@ -3544,7 +3575,7 @@ const App = {
                 ${miniBar('Quality',   ai.quality)}
                 ${miniBar('Valuation', ai.valuation)}
                 ${miniBar('Risk',      ai.risk)}
-                ${pbvChip(origPBV[ai.ticker])}
+                ${valuationRow2(origVal[ai.ticker]?.pbv, origVal[ai.ticker]?.ev)}
                 ${ai.narrative ? `
                 <div style="margin-top:10px;padding:8px 10px;background:rgba(99,102,241,0.07);border-left:2px solid rgba(99,102,241,0.4);border-radius:0 4px 4px 0;font-size:0.78em;color:var(--text-secondary);line-height:1.5">
                     ${ai.narrative}

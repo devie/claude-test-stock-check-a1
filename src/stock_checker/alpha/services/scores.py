@@ -51,6 +51,7 @@ def get_scores(symbol):
         'ticker': symbol,
         'pbv': ratios.get('PBV'),
         'per': ratios.get('PER'),
+        'ev_ebitda': ratios.get('EV/EBITDA'),
         'quality_score': quality['score'],
         'valuation_score': valuation['score'],
         'risk_score': risk['score'],

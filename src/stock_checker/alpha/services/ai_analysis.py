@@ -111,7 +111,7 @@ konteks sektor, dan trade-off valuasi vs kualitas."
 Pastikan:
 - composite = quality*0.35 + valuation*0.35 + risk*0.25 (hitung ulang, jangan pakai input)
 - recommendation mengikuti threshold yang ditetapkan di atas (PERSIS)
-- narrative: Bahasa Indonesia, 2-3 kalimat, decision-ready, mention sektor
+- narrative: {lang_instruction}, 2-3 sentences, decision-ready, mention sector
 - Semua angka float dengan 1 desimal
 """
 
@@ -221,11 +221,18 @@ def get_provider_status() -> dict:
     }
 
 
-def analyze_watchlist(scores: list[dict]) -> list[dict]:
+_LANG_INSTRUCTIONS = {
+    "id": "Bahasa Indonesia",
+    "en": "English",
+}
+
+
+def analyze_watchlist(scores: list[dict], lang: str = "id") -> list[dict]:
     """Run AI analysis on a batch scores list.
 
     Provider is selected via LLM_PROVIDER env var (default: groq).
     API key read from the provider's key_env (e.g. GROQ_API_KEY).
+    lang: 'id' (default) or 'en' — narrative output language.
 
     Raises:
         EnvironmentError: provider not ready (missing key / Ollama not running)
@@ -247,8 +254,12 @@ def analyze_watchlist(scores: list[dict]) -> list[dict]:
     if not valid:
         raise ValueError("Tidak ada ticker valid untuk dianalisis.")
 
+    lang_instruction = _LANG_INSTRUCTIONS.get(lang, _LANG_INSTRUCTIONS["id"])
     enriched = _enrich_with_sector(valid)
-    user_msg = _USER_TEMPLATE.format(table=_build_table(enriched))
+    user_msg = _USER_TEMPLATE.format(
+        table=_build_table(enriched),
+        lang_instruction=lang_instruction,
+    )
 
     try:
         if provider == "anthropic":

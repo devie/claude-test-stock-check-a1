@@ -49,6 +49,8 @@ def get_scores(symbol):
 
     return {
         'ticker': symbol,
+        'pbv': ratios.get('PBV'),
+        'per': ratios.get('PER'),
         'quality_score': quality['score'],
         'valuation_score': valuation['score'],
         'risk_score': risk['score'],

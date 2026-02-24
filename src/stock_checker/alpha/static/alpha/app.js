@@ -3275,11 +3275,18 @@ const App = {
         `).join('');
 
         App._recsScores = null;
+        App._recsLang = App._recsLang || 'id';
         this.render(`
             <div class="section-header">
                 <h2>Daily Recommendations</h2>
-                <div style="display:flex;align-items:center;gap:10px">
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                     <span style="color:var(--text-muted);font-size:0.85em">${tickers.length} ticker${tickers.length > 1 ? 's' : ''} dari watchlist</span>
+                    <div style="display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;font-size:0.78em">
+                        <button id="lang-id" onclick="App.setRecsLang('id')"
+                            style="padding:3px 9px;background:${App._recsLang==='id'?'var(--accent)':'transparent'};color:${App._recsLang==='id'?'#fff':'var(--text-muted)'};border:none;cursor:pointer;transition:all 0.2s">ID</button>
+                        <button id="lang-en" onclick="App.setRecsLang('en')"
+                            style="padding:3px 9px;background:${App._recsLang==='en'?'var(--accent)':'transparent'};color:${App._recsLang==='en'?'#fff':'var(--text-muted)'};border:none;cursor:pointer;transition:all 0.2s">EN</button>
+                    </div>
                     <button id="btn-ai-analyze" class="btn btn-sm btn-primary" onclick="App.runAIAnalysis()" disabled>✦ AI Analysis</button>
                     <button class="btn btn-sm btn-secondary" onclick="App.screenshotToClipboard()">Screenshot</button>
                 </div>
@@ -3335,6 +3342,22 @@ const App = {
             </div>`;
         };
 
+        const pbvChip = (pbv) => {
+            if (pbv == null) return '';
+            const { color, label } = pbv <= 0 ? { color: '#888', label: 'N/A' }
+                : pbv < 1   ? { color: '#4caf50', label: 'Very Cheap' }
+                : pbv < 2   ? { color: '#8bc34a', label: 'Cheap' }
+                : pbv < 4   ? { color: '#ff9800', label: 'Fair' }
+                : pbv < 7   ? { color: '#ff5722', label: 'Expensive' }
+                :              { color: '#f44336', label: 'Very Expensive' };
+            return `
+            <div style="display:flex;align-items:center;gap:6px;margin-top:7px;padding-top:7px;border-top:1px solid rgba(255,255,255,0.06)">
+                <span style="font-size:0.72em;color:var(--text-muted);flex-shrink:0">PBV</span>
+                <span style="font-size:0.84em;font-weight:700;color:${color}">${pbv.toFixed(2)}x</span>
+                <span style="font-size:0.68em;padding:1px 6px;border-radius:10px;background:${color}22;color:${color};font-weight:600;letter-spacing:0.02em">${label}</span>
+            </div>`;
+        };
+
         const html = scores.map(sc => {
             if (sc.error) {
                 return `
@@ -3366,6 +3389,7 @@ const App = {
                 ${miniBar('Quality',   sc.quality_score)}
                 ${miniBar('Valuation', sc.valuation_score)}
                 ${miniBar('Risk',      sc.risk_score)}
+                ${pbvChip(sc.pbv)}
             </div>`;
         }).join('');
 
@@ -3379,11 +3403,23 @@ const App = {
         if (aiBtn) aiBtn.disabled = false;
     },
 
+    setRecsLang(lang) {
+        App._recsLang = lang;
+        ['id', 'en'].forEach(l => {
+            const btn = document.getElementById(`lang-${l}`);
+            if (btn) {
+                btn.style.background = l === lang ? 'var(--accent)' : 'transparent';
+                btn.style.color = l === lang ? '#fff' : 'var(--text-muted)';
+            }
+        });
+    },
+
     // ── AI Analysis ───────────────────────────────────────────────────────────
     async runAIAnalysis() {
         const scores = App._recsScores;
         if (!scores || scores.length === 0) return;
 
+        const lang = App._recsLang || 'id';
         const btn = document.getElementById('btn-ai-analyze');
         if (btn) { btn.disabled = true; btn.textContent = '⏳ Analyzing...'; }
 
@@ -3412,11 +3448,30 @@ const App = {
             </div>`;
         };
 
+        const pbvChip = (pbv) => {
+            if (pbv == null) return '';
+            const { color, label } = pbv <= 0 ? { color: '#888', label: 'N/A' }
+                : pbv < 1   ? { color: '#4caf50', label: 'Very Cheap' }
+                : pbv < 2   ? { color: '#8bc34a', label: 'Cheap' }
+                : pbv < 4   ? { color: '#ff9800', label: 'Fair' }
+                : pbv < 7   ? { color: '#ff5722', label: 'Expensive' }
+                :              { color: '#f44336', label: 'Very Expensive' };
+            return `
+            <div style="display:flex;align-items:center;gap:6px;margin-top:7px;padding-top:7px;border-top:1px solid rgba(255,255,255,0.06)">
+                <span style="font-size:0.72em;color:var(--text-muted);flex-shrink:0">PBV</span>
+                <span style="font-size:0.84em;font-weight:700;color:${color}">${pbv.toFixed(2)}x</span>
+                <span style="font-size:0.68em;padding:1px 6px;border-radius:10px;background:${color}22;color:${color};font-weight:600;letter-spacing:0.02em">${label}</span>
+            </div>`;
+        };
+
+        // Original PBV map so AI cards can still show it
+        const origPBV = Object.fromEntries(scores.map(s => [s.ticker, s.pbv ?? null]));
+
         let aiResults;
         try {
             aiResults = await this.api('/api/recommendations/ai-analyze', {
                 method: 'POST',
-                body: { scores },
+                body: { scores, lang },
             });
         } catch (e) {
             this.toast(`AI Analysis gagal: ${e.message}`, 'error');
@@ -3442,6 +3497,7 @@ const App = {
 
         // Build original rec map for change indicator
         const origRec = Object.fromEntries(scores.map(s => [s.ticker, s.recommendation]));
+        // eslint-disable-next-line no-unused-vars
 
         const html = aiResults.map(ai => {
             const rec = ai.recommendation;
@@ -3473,6 +3529,7 @@ const App = {
                 ${miniBar('Quality',   ai.quality)}
                 ${miniBar('Valuation', ai.valuation)}
                 ${miniBar('Risk',      ai.risk)}
+                ${pbvChip(origPBV[ai.ticker])}
                 ${ai.narrative ? `
                 <div style="margin-top:10px;padding:8px 10px;background:rgba(99,102,241,0.07);border-left:2px solid rgba(99,102,241,0.4);border-radius:0 4px 4px 0;font-size:0.78em;color:var(--text-secondary);line-height:1.5">
                     ${ai.narrative}

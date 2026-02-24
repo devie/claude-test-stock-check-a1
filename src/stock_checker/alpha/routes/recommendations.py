@@ -44,11 +44,14 @@ def ai_analyze():
     """
     data = request.get_json() or {}
     scores = data.get("scores") or []
+    lang = data.get("lang", "id")
+    if lang not in ("id", "en"):
+        lang = "id"
     if not scores:
         return jsonify({"error": "scores list required"}), 400
 
     try:
-        results = analyze_watchlist(scores)
+        results = analyze_watchlist(scores, lang=lang)
         return jsonify(results)
     except EnvironmentError as e:
         status = get_provider_status()

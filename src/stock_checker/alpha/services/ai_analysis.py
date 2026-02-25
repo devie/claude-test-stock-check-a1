@@ -17,7 +17,7 @@ _PROVIDER_DEFAULTS = {
     },
     "ollama": {
         "base_url": "http://localhost:11434/v1",
-        "model":    "llama3.2",
+        "model":    "llama3.2:1b",
         "key_env":  None,          # Ollama doesn't need a real key
     },
     "anthropic": {
@@ -34,7 +34,7 @@ _PROVIDER_DEFAULTS = {
 
 _SETUP_HINTS = {
     "groq":      "Daftar gratis di console.groq.com, buat API key, set GROQ_API_KEY di .env",
-    "ollama":    "Install Ollama di ollama.ai lalu jalankan: ollama pull llama3.2",
+    "ollama":    "Install Ollama di ollama.ai lalu jalankan: ollama pull llama3.2:1b",
     "anthropic": "Daftar di console.anthropic.com, buat API key, set ANTHROPIC_API_KEY di .env",
     "openai":    "Daftar di platform.openai.com, buat API key, set OPENAI_API_KEY di .env",
 }

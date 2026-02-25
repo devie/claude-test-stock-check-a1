@@ -155,17 +155,27 @@ def _parse_response(text: str) -> list[dict]:
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
-def _is_rate_limit(exc: Exception) -> bool:
-    """Return True if the exception looks like a rate-limit / quota error."""
+def _should_fallback(exc: Exception) -> bool:
+    """Return True if the primary provider failed in a way that warrants Ollama fallback.
+
+    Covers:
+    - Rate limit / quota exceeded (HTTP 429)
+    - Connection blocked by VPN / firewall (ConnectionError, timeout, SSL error)
+    - Service unavailable (HTTP 503)
+    """
     msg = str(exc).lower()
     try:
-        from openai import RateLimitError
-        if isinstance(exc, RateLimitError):
+        from openai import RateLimitError, APIConnectionError, APITimeoutError
+        if isinstance(exc, (RateLimitError, APIConnectionError, APITimeoutError)):
             return True
     except ImportError:
         pass
-    return any(k in msg for k in ("rate limit", "rate_limit", "429",
-                                  "quota", "too many requests"))
+    return any(k in msg for k in (
+        "rate limit", "rate_limit", "429", "quota", "too many requests",
+        "connection error", "connectionerror", "connection refused",
+        "timed out", "timeout", "ssl", "network", "unreachable",
+        "503", "service unavailable", "could not connect",
+    ))
 
 
 # ── Provider calls ────────────────────────────────────────────────────────────
@@ -271,8 +281,8 @@ def analyze_watchlist(scores: list[dict], lang: str = "id") -> list[dict]:
                 raw = _call_openai_compat(cfg["base_url"], api_key, model,
                                           SYSTEM_PROMPT, user_msg)
             except Exception as primary_err:
-                # Auto-fallback to Ollama on rate limit or quota errors
-                if provider != "ollama" and _is_rate_limit(primary_err):
+                # Auto-fallback to Ollama on rate limit, quota, or VPN/connection block
+                if provider != "ollama" and _should_fallback(primary_err):
                     ollama_cfg = _PROVIDER_DEFAULTS["ollama"]
                     ollama_model = os.environ.get("OLLAMA_MODEL",
                                                   ollama_cfg["model"])
@@ -283,8 +293,9 @@ def analyze_watchlist(scores: list[dict], lang: str = "id") -> list[dict]:
                         )
                     except Exception as ollama_err:
                         raise RuntimeError(
-                            f"Groq rate-limited dan Ollama juga gagal: "
-                            f"{ollama_err}"
+                            f"'{provider}' tidak dapat dijangkau "
+                            f"({type(primary_err).__name__}) dan Ollama fallback "
+                            f"juga gagal: {ollama_err}"
                         ) from ollama_err
                 else:
                     raise

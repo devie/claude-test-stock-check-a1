@@ -145,11 +145,15 @@ def calc_valuation_score(ratios, sector=None):
       PEG       4x→0,   0.5x→100 weight 20%
 
     Sector adjustments:
-      perbankan          — PER range 5-20x; PBV range 0.5-4x;
+      perbankan          — PER range 5-20x; PBV range 0.5-5.5x (extended: BBCA ~4.5x is normal premium);
                            EV/EBITDA and PEG excluded (not applicable).
                            Weights: PER 50%, PBV 50%.
+      consumer_goods     — EV/EBITDA primary (45%, range 8-25x); PER 35% (10-40x);
+                           PBV near-excluded (5%, range 2-20x): brand intangibles inflate PBV;
+                           PEG 15%. Reflects FMCG premium-multiple reality.
       telekomunikasi     — EV/EBITDA primary (60%); PER 20%, PEG 15%, PBV 5%.
-      energi_pertambangan — EV/EBITDA primary (60%); PER 20%, PBV 10%, PEG 10%.
+      energi_pertambangan — EV/EBITDA primary (65%); PER 25%, PBV 10%.
+                           PEG excluded: cyclical earnings make forward growth unreliable.
       properti_konstruksi — PBV primary (60%, range 0.3-2.0x); PER 25%, EV/EBITDA 15%.
       teknologi          — P/S (range 3-20x) supplements/replaces PER for pre-profit names.
                            EV/EBITDA range extended to 30x (tech trades at higher multiples).
@@ -182,8 +186,10 @@ def calc_valuation_score(ratios, sector=None):
         # EV/EBITDA not meaningful for deposit-funded institutions.
         # PBV is the primary metric (franchise premium over book value).
         # Tighter PER range: banks in emerging markets rarely exceed 20x.
+        # PBV ceiling raised to 5.5x: BBCA regularly trades at 4-5x — that's a
+        # quality premium, not a penalisation trigger.
         per_s = _norm_inv(per, 5, 20) if per is not None and per > 0 else None
-        pbv_s = _norm_inv(pbv, 0.5, 4.0) if pbv is not None and pbv > 0 else None
+        pbv_s = _norm_inv(pbv, 0.5, 5.5) if pbv is not None and pbv > 0 else None
         breakdown = {
             'PER': per_s,
             'PBV': pbv_s,
@@ -191,6 +197,28 @@ def calc_valuation_score(ratios, sector=None):
             'PEG': None,
         }
         score = _weighted_avg([(per_s, 0.50), (pbv_s, 0.50)])
+        return {'score': score, 'breakdown': breakdown}
+
+    # ── Consumer Goods / FMCG ─────────────────────────────────────────────
+    if sector == 'consumer_goods':
+        # Brand intangibles (trademarks, distribution) are NOT on the balance sheet
+        # → PBV is structurally inflated (UNVR 30-50x, ICBP 5-10x) and non-comparable.
+        # EV/EBITDA is the global standard for FMCG valuation.
+        # Wide PER range (10-40x): quality FMCG commands premium earnings multiples.
+        # PBV included at 5% weight with wide range so it never distorts the score.
+        per_s = _norm_inv(per,      10, 40) if per      is not None and per      > 0 else None
+        pbv_s = _norm_inv(pbv,       2, 20) if pbv      is not None and pbv      > 0 else None
+        ev_s  = _norm_inv(ev_ebitda, 8, 25) if ev_ebitda is not None and ev_ebitda > 0 else None
+        peg_s = _norm_inv(peg,     0.5,  3) if peg      is not None and peg      > 0 else None
+        breakdown = {
+            'PER': per_s,
+            'PBV': pbv_s,
+            'EV/EBITDA': ev_s,
+            'PEG': peg_s,
+        }
+        score = _weighted_avg([
+            (per_s, 0.35), (pbv_s, 0.05), (ev_s, 0.45), (peg_s, 0.15),
+        ])
         return {'score': score, 'breakdown': breakdown}
 
     # ── Telco ──────────────────────────────────────────────────────────────
@@ -214,18 +242,19 @@ def calc_valuation_score(ratios, sector=None):
     # ── Mining / Energy ────────────────────────────────────────────────────
     if sector == 'energi_pertambangan':
         # Commodity cycles mean EV/EBITDA is the most cycle-adjusted metric.
+        # PEG excluded: forward earnings estimates are notoriously unreliable for
+        # cyclical commodities — a "low PEG" at cycle peak is meaningless.
         per_s = _norm_inv(per, 5, 30) if per is not None and per > 0 else None
         pbv_s = _norm_inv(pbv, 0.5, 5) if pbv is not None and pbv > 0 else None
-        ev_s = _norm_inv(ev_ebitda, 4, 20) if ev_ebitda is not None and ev_ebitda > 0 else None
-        peg_s = _norm_inv(peg, 0.5, 4) if peg is not None and peg > 0 else None
+        ev_s  = _norm_inv(ev_ebitda, 4, 20) if ev_ebitda is not None and ev_ebitda > 0 else None
         breakdown = {
             'PER': per_s,
             'PBV': pbv_s,
             'EV/EBITDA': ev_s,
-            'PEG': peg_s,
+            'PEG': None,
         }
         score = _weighted_avg([
-            (per_s, 0.20), (pbv_s, 0.10), (ev_s, 0.60), (peg_s, 0.10),
+            (per_s, 0.25), (pbv_s, 0.10), (ev_s, 0.65),
         ])
         return {'score': score, 'breakdown': breakdown}
 
@@ -305,7 +334,10 @@ def calc_risk_score(ratios, sector=None):
     Returns:
         dict with score and breakdown
     """
-    _CAPEX_HEAVY = {'telekomunikasi', 'properti_konstruksi', 'logistik_transportasi', 'infrastruktur'}
+    _CAPEX_HEAVY  = {'telekomunikasi', 'properti_konstruksi', 'logistik_transportasi', 'infrastruktur'}
+    # FMCG companies like UNVR run high DER by design (aggressive dividend → low equity),
+    # not financial distress. 4x tolerance avoids unfairly penalising them.
+    _MODERATE_DER = {'consumer_goods', 'healthcare'}
 
     der = ratios.get('DER')
     beta = ratios.get('Beta')
@@ -329,8 +361,11 @@ def calc_risk_score(ratios, sector=None):
         score = _weighted_avg([(beta_score, 1.0)])
         return {'score': score, 'breakdown': breakdown}
 
-    # Capex-heavy sectors: extended DER tolerance — distress threshold at 5x, not 3x
-    der_limit = 5.0 if sector in _CAPEX_HEAVY else 3.0
+    # DER tolerance by sector:
+    #   capex-heavy (telco, property): 5x — structural high leverage
+    #   consumer_goods / healthcare:   4x — high DER from dividends, not distress
+    #   all others:                    3x — standard
+    der_limit = 5.0 if sector in _CAPEX_HEAVY else (4.0 if sector in _MODERATE_DER else 3.0)
 
     der_score = None
     if der is not None:

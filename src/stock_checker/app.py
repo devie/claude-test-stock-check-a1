@@ -206,7 +206,8 @@ def _build_technicals(df):
 
 @app.route("/")
 def index():
-    return render_template("index.html", periods=VALID_PERIODS)
+    from flask import redirect
+    return redirect("/alpha/")
 
 
 @app.route("/api/analyze", methods=["POST"])

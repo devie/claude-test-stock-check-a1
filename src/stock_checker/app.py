@@ -14,6 +14,9 @@ try:
 except ImportError:
     pass
 
+import os
+import secrets
+
 from stock_checker.fetcher import fetch_stock
 from stock_checker.indicators import calc_sma, calc_rsi, get_summary, format_number
 from stock_checker.alpha import init_alpha
@@ -22,6 +25,21 @@ app = Flask(
     __name__,
     template_folder=str(Path(__file__).parent / "templates"),
 )
+app.secret_key = os.getenv("SECRET_KEY", secrets.token_hex(32))
+
+# Simple API key for state-mutating endpoints
+APP_API_KEY = os.getenv("APP_API_KEY", "")
+app.config["APP_API_KEY"] = APP_API_KEY
+
+
+def require_api_key():
+    """Check API key for mutating requests. Skip if APP_API_KEY not configured."""
+    if not APP_API_KEY:
+        return  # no key configured, allow (dev mode)
+    key = request.headers.get("X-API-Key", "")
+    if not secrets.compare_digest(key, APP_API_KEY):
+        from flask import abort
+        abort(401)
 
 
 def _clean(val):
@@ -255,10 +273,10 @@ def analyze():
 
 def run():
     """Entry point for the web server."""
-    print("Starting Stock Checker Web Server...")
-    print("Open http://localhost:5000 in your browser")
-    # Explicitly bind to all interfaces including IPv4 localhost
-    app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False)
+    host = os.getenv("HOST", "127.0.0.1")
+    port = int(os.getenv("PORT", "5000"))
+    print(f"Starting Stock Checker Web Server on {host}:{port}...")
+    app.run(host=host, port=port, debug=False, use_reloader=False)
 
 
 if __name__ == "__main__":

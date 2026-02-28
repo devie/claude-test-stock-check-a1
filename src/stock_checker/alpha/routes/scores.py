@@ -16,5 +16,5 @@ def scores():
     try:
         result = get_scores(ticker)
         return jsonify(result)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    except Exception:
+        return jsonify({"error": "Failed to compute scores"}), 500

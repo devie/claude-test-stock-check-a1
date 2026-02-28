@@ -1,4 +1,14 @@
 /**
+ * HTML escape utility to prevent XSS in innerHTML templates.
+ */
+function _esc(str) {
+    if (str == null) return '';
+    const d = document.createElement('div');
+    d.textContent = String(str);
+    return d.innerHTML;
+}
+
+/**
  * Sector-aware configuration for H2H comparison.
  * Keys match industry_key values returned by /api/industry.
  */
@@ -459,17 +469,17 @@ const App = {
                 return;
             }
             el.innerHTML = articles.map(a => `
-                <a href="${a.url}" target="_blank" rel="noopener" style="display:block;text-decoration:none;color:inherit">
+                <a href="${_esc(a.url)}" target="_blank" rel="noopener" style="display:block;text-decoration:none;color:inherit">
                     <div class="card" style="display:flex;gap:12px;align-items:flex-start;padding:12px 16px;margin-bottom:8px;transition:background 0.15s" onmouseover="this.style.background='var(--bg-input)'" onmouseout="this.style.background=''">
-                        ${a.thumbnail ? `<img src="${a.thumbnail}" alt="" style="width:64px;height:48px;object-fit:cover;border-radius:var(--radius);flex-shrink:0">` : `<div style="width:64px;height:48px;background:var(--bg-input);border-radius:var(--radius);flex-shrink:0;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:1.2em">📰</div>`}
+                        ${a.thumbnail ? `<img src="${_esc(a.thumbnail)}" alt="" style="width:64px;height:48px;object-fit:cover;border-radius:var(--radius);flex-shrink:0">` : `<div style="width:64px;height:48px;background:var(--bg-input);border-radius:var(--radius);flex-shrink:0;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:1.2em">📰</div>`}
                         <div style="flex:1;min-width:0">
                             <div style="display:flex;gap:8px;align-items:center;margin-bottom:4px;flex-wrap:wrap">
-                                <span class="badge badge-blue" style="font-size:0.7em;cursor:pointer" onclick="event.preventDefault();event.stopPropagation();Router.navigate('#detail/${a.ticker}')">${a.ticker}</span>
-                                <span style="color:var(--text-muted);font-size:0.75em">${a.publisher}</span>
-                                <span style="color:var(--text-muted);font-size:0.75em">• ${a.pub_date}</span>
+                                <span class="badge badge-blue" style="font-size:0.7em;cursor:pointer" onclick="event.preventDefault();event.stopPropagation();Router.navigate('#detail/${_esc(a.ticker)}')">${_esc(a.ticker)}</span>
+                                <span style="color:var(--text-muted);font-size:0.75em">${_esc(a.publisher)}</span>
+                                <span style="color:var(--text-muted);font-size:0.75em">• ${_esc(a.pub_date)}</span>
                             </div>
-                            <div style="font-weight:600;font-size:0.9em;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${a.title}</div>
-                            ${a.summary ? `<p style="color:var(--text-secondary);font-size:0.8em;margin:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${a.summary}</p>` : ''}
+                            <div style="font-weight:600;font-size:0.9em;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(a.title)}</div>
+                            ${a.summary ? `<p style="color:var(--text-secondary);font-size:0.8em;margin:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${_esc(a.summary)}</p>` : ''}
                         </div>
                         <div style="color:var(--text-muted);font-size:1em;flex-shrink:0">↗</div>
                     </div>
@@ -499,7 +509,7 @@ const App = {
                 },
             });
             if (data.error) {
-                chartDiv.innerHTML = `<p class="val-negative">${data.error}</p>`;
+                chartDiv.innerHTML = `<p class="val-negative">${_esc(data.error)}</p>`;
                 return;
             }
             chartDiv.innerHTML = this._buildPriceStatsBar(data) + '<div id="dash-chart-container"></div>';
@@ -808,7 +818,7 @@ const App = {
                 },
             });
             if (data.error) {
-                chartDiv.innerHTML = `<p class="val-negative">${data.error}</p>`;
+                chartDiv.innerHTML = `<p class="val-negative">${_esc(data.error)}</p>`;
                 return;
             }
             chartDiv.innerHTML = this._buildPriceStatsBar(data) + '<div id="detail-chart-container"></div>';

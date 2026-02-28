@@ -17,7 +17,7 @@ def financials():
     try:
         result = get_financial_analysis(ticker)
         return jsonify(result)
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 404
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    except ValueError:
+        return jsonify({"error": "Financial data not found for this ticker"}), 404
+    except Exception:
+        return jsonify({"error": "Failed to fetch financial data"}), 500

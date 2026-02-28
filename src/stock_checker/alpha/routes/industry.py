@@ -15,5 +15,5 @@ def industry():
     try:
         result = get_industry_context(ticker)
         return jsonify(result)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    except Exception:
+        return jsonify({'error': 'Failed to fetch industry data'}), 500

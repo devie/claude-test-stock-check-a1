@@ -1,7 +1,11 @@
 """Stock Review Intelligence - Alpha module."""
 
-from flask import Blueprint, jsonify
+import secrets
+
+from flask import Blueprint, jsonify, request
 from stock_checker.alpha.models.database import db
+
+MUTATING_METHODS = {"POST", "PUT", "DELETE", "PATCH"}
 
 
 def create_alpha_blueprint():
@@ -14,6 +18,19 @@ def create_alpha_blueprint():
         static_url_path="static",
         url_prefix="/alpha",
     )
+
+    @alpha_bp.before_request
+    def check_api_key_for_mutations():
+        """Require API key for state-mutating requests when APP_API_KEY is set."""
+        if request.method not in MUTATING_METHODS:
+            return
+        from flask import current_app
+        app_key = current_app.config.get("APP_API_KEY", "")
+        if not app_key:
+            return  # not configured, allow (dev mode)
+        provided = request.headers.get("X-API-Key", "")
+        if not secrets.compare_digest(provided, app_key):
+            return jsonify({"error": "Unauthorized"}), 401
 
     # Import and register route modules
     from stock_checker.alpha.routes import dashboard, comparison, financials

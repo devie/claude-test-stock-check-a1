@@ -5,12 +5,38 @@ from datetime import datetime
 import yfinance as yf
 
 
+_ALLOWED_DOMAINS = {
+    'finance.yahoo.com', 'www.yahoo.com', 'news.yahoo.com',
+    'reuters.com', 'www.reuters.com',
+    'bloomberg.com', 'www.bloomberg.com',
+    'cnbc.com', 'www.cnbc.com',
+    'marketwatch.com', 'www.marketwatch.com',
+    'wsj.com', 'www.wsj.com',
+    'ft.com', 'www.ft.com',
+    'seekingalpha.com', 'www.seekingalpha.com',
+    'investopedia.com', 'www.investopedia.com',
+    'barrons.com', 'www.barrons.com',
+    'kontan.co.id', 'www.kontan.co.id',
+    'bisnis.com', 'www.bisnis.com',
+    'cnbcindonesia.com', 'www.cnbcindonesia.com',
+    'detik.com', 'finance.detik.com',
+    'idx.co.id', 'www.idx.co.id',
+}
+
+
 def _fetch_summary(url, max_chars=400):
     """Fetch a URL and extract a short summary (first meaningful paragraphs)."""
     try:
         import urllib.request
         import html
         import re
+        from urllib.parse import urlparse
+
+        parsed = urlparse(url)
+        if parsed.scheme not in ('http', 'https'):
+            return None
+        if parsed.hostname and parsed.hostname not in _ALLOWED_DOMAINS:
+            return None
 
         req = urllib.request.Request(
             url,

@@ -21,6 +21,7 @@ def scores_batch():
     if not tickers or not isinstance(tickers, list):
         return jsonify({"error": "tickers (list) required"}), 400
 
+    tickers = tickers[:20]  # cap batch size
     results = []
     for ticker in tickers:
         ticker = ticker.strip().upper()
@@ -29,8 +30,8 @@ def scores_batch():
         try:
             result = get_scores(ticker)
             results.append(result)
-        except Exception as e:
-            results.append({"ticker": ticker, "error": str(e)})
+        except Exception:
+            results.append({"ticker": ticker, "error": "Failed to compute scores"})
 
     return jsonify(results)
 
@@ -53,16 +54,16 @@ def ai_analyze():
     try:
         results = analyze_watchlist(scores, lang=lang)
         return jsonify(results)
-    except EnvironmentError as e:
+    except EnvironmentError:
         status = get_provider_status()
         return jsonify({
-            "error": str(e),
+            "error": "AI provider not configured",
             "code":  "no_api_key",
             "provider": status["provider"],
             "hint":  status["hint"],
         }), 503
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    except Exception:
+        return jsonify({"error": "Failed to run AI analysis"}), 500
 
 
 @bp.route("/api/recommendations/ai-status", methods=["GET"])

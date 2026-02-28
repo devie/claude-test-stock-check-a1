@@ -1,10 +1,15 @@
 """Dashboard route - serves the SPA shell and price history API."""
 
 import math
+import re
 from flask import Blueprint, render_template, request, jsonify
 from stock_checker.alpha.services.data_fetcher import get_history
 
 bp = Blueprint("alpha_dashboard", __name__)
+
+VALID_PERIODS = {"1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"}
+TICKER_RE = re.compile(r"^[A-Z0-9._\-]{1,20}$")
+MAX_INDICATOR_WINDOW = 500
 
 
 @bp.route("/")
@@ -21,16 +26,21 @@ def price_history():
     """
     data = request.get_json()
     ticker = data.get("ticker", "").strip().upper()
-    if not ticker:
-        return jsonify({"error": "Ticker is required"}), 400
+    if not ticker or not TICKER_RE.match(ticker):
+        return jsonify({"error": "Invalid ticker symbol"}), 400
 
     period = data.get("period", "1y")
+    if period not in VALID_PERIODS:
+        return jsonify({"error": f"Invalid period. Choose from: {sorted(VALID_PERIODS)}"}), 400
+
     indicators = data.get("indicators", [])
+    if not isinstance(indicators, list) or len(indicators) > 20:
+        return jsonify({"error": "Invalid indicators list"}), 400
 
     try:
         hist = get_history(ticker, period)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    except Exception:
+        return jsonify({"error": "Failed to fetch data for this ticker"}), 500
 
     # Build OHLCV arrays
     dates = [d.strftime("%Y-%m-%d") for d in hist.index]
@@ -55,16 +65,23 @@ def price_history():
     close_series = hist["Close"].values
 
     # Calculate requested indicators
+    def _parse_window(prefix, ind_str, default):
+        try:
+            w = int(ind_str[len(prefix):]) if len(ind_str) > len(prefix) else default
+            return max(1, min(w, MAX_INDICATOR_WINDOW))
+        except ValueError:
+            return default
+
     for ind in indicators:
         ind_upper = ind.upper()
         if ind_upper.startswith("SMA"):
-            window = int(ind_upper[3:]) if len(ind_upper) > 3 else 20
+            window = _parse_window("SMA", ind_upper, 20)
             result["indicators"][ind] = _calc_sma(close_series, window)
         elif ind_upper.startswith("EMA"):
-            window = int(ind_upper[3:]) if len(ind_upper) > 3 else 12
+            window = _parse_window("EMA", ind_upper, 12)
             result["indicators"][ind] = _calc_ema(close_series, window)
         elif ind_upper.startswith("RSI"):
-            window = int(ind_upper[3:]) if len(ind_upper) > 3 else 14
+            window = _parse_window("RSI", ind_upper, 14)
             result["indicators"][ind] = _calc_rsi(close_series, window)
         elif ind_upper == "MACD":
             macd, signal, histogram = _calc_macd(close_series)
@@ -72,7 +89,7 @@ def price_history():
             result["indicators"]["MACD_Signal"] = signal
             result["indicators"]["MACD_Hist"] = histogram
         elif ind_upper.startswith("BB"):
-            window = int(ind_upper[2:]) if len(ind_upper) > 2 else 20
+            window = _parse_window("BB", ind_upper, 20)
             upper, middle, lower = _calc_bollinger(close_series, window)
             result["indicators"]["BB_Upper"] = upper
             result["indicators"]["BB_Middle"] = middle

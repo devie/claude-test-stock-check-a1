@@ -22,5 +22,5 @@ def compare():
     try:
         result = compare_tickers(tickers, categories)
         return jsonify(result)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    except Exception:
+        return jsonify({"error": "Failed to compare tickers"}), 500

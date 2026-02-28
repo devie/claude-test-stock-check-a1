@@ -17,8 +17,9 @@ def news():
     tickers = data.get('tickers') or []
     if not tickers or not isinstance(tickers, list):
         return jsonify({'error': 'tickers (list) required'}), 400
+    tickers = tickers[:20]  # cap batch size
     try:
         result = get_news(tickers)
         return jsonify(result)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    except Exception:
+        return jsonify({'error': 'Failed to fetch news'}), 500

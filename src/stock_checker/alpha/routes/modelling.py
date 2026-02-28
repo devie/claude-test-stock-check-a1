@@ -26,8 +26,8 @@ def dcf():
             fcf_override=data.get("fcf_override"),
         )
         return jsonify(result)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    except Exception:
+        return jsonify({"error": "Failed to run DCF model"}), 500
 
 
 @bp.route("/api/model/scenario", methods=["POST"])
@@ -46,8 +46,8 @@ def scenario():
             projection_years=data.get("projection_years", 5),
         )
         return jsonify(result)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    except Exception:
+        return jsonify({"error": "Failed to run scenario analysis"}), 500
 
 
 @bp.route("/api/model/sensitivity", methods=["POST"])
@@ -66,8 +66,8 @@ def sensitivity():
             projection_years=data.get("projection_years", 5),
         )
         return jsonify(result)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    except Exception:
+        return jsonify({"error": "Failed to run sensitivity analysis"}), 500
 
 
 @bp.route("/api/model/projection", methods=["POST"])
@@ -84,8 +84,8 @@ def projection():
             periods_ahead=data.get("periods_ahead", 4),
         )
         return jsonify(result)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    except Exception:
+        return jsonify({"error": "Failed to run projection"}), 500
 
 
 @bp.route("/api/model/pbv", methods=["POST"])
@@ -102,8 +102,8 @@ def pbv():
             terminal_growth=data.get("terminal_growth", 0.05),
         )
         return jsonify(result)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    except Exception:
+        return jsonify({"error": "Failed to run PBV model"}), 500
 
 
 @bp.route("/api/model/ddm", methods=["POST"])
@@ -120,8 +120,8 @@ def ddm():
             cost_of_equity=data.get("cost_of_equity", 0.10),
         )
         return jsonify(result)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    except Exception:
+        return jsonify({"error": "Failed to run DDM model"}), 500
 
 
 @bp.route("/api/model/roe", methods=["POST"])
@@ -137,5 +137,5 @@ def roe_model():
             cost_of_equity=data.get("cost_of_equity", 0.10),
         )
         return jsonify(result)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    except Exception:
+        return jsonify({"error": "Failed to run ROE model"}), 500

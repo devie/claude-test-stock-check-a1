@@ -8,7 +8,7 @@ from stock_checker.alpha.services.data_fetcher import get_history
 bp = Blueprint("alpha_dashboard", __name__)
 
 VALID_PERIODS = {"1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"}
-TICKER_RE = re.compile(r"^[A-Z0-9._\-]{1,20}$")
+TICKER_RE = re.compile(r"^[\^A-Z0-9._\-]{1,20}$")
 MAX_INDICATOR_WINDOW = 500
 
 

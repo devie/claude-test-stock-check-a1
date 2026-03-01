@@ -4,7 +4,19 @@ All notable changes to Stock Alpha are documented here.
 
 ---
 
-## [Unreleased] — 2026-02-19
+## [Unreleased] — 2026-03-01
+
+### Fixed
+- **Ticker regex rejecting index symbols** — `TICKER_RE` regex didn't allow `^` character for index symbols like `^JKSE`, `^GSPC`. Updated regex to `r"^[\^A-Z0-9._\-]{1,20}$"` to support all market index tickers.
+
+### Security
+- **Exception sanitization** — all exception messages are now sanitized before returning to client to prevent information leakage
+- **Input validation** — stricter validation on ticker symbols, periods, and API parameters
+- **SSRF protection** — added safeguards against server-side request forgery on external API calls
+
+---
+
+## [d269bc7] — 2026-02-19
 
 ### Added
 - **Market Indices on Dashboard** — row of purple-tinted chips (IHSG `^JKSE`, LQ45 `^JKLQ45`, S&P 500 `^GSPC`, NASDAQ `^IXIC`, NIKKEI `^N225`, HANG SENG `^HSI`, FTSE 100 `^FTSE`, DAX `^GDAXI`) above the watchlist section. Click any chip to load its price chart instantly.

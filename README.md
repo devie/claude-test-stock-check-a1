@@ -63,6 +63,24 @@ Full-stack stock market analysis platform with interactive charts, sector-aware 
 - CSV, JSON, and PDF report generation
 - Comparison tables, scores, financials exportable
 
+### Market Indices
+- Dashboard index chips: IHSG, LQ45, S&P 500, NASDAQ, Nikkei, Hang Seng, FTSE, DAX
+- Click any chip to instantly load its price chart
+
+### Recommendation Summary
+- Auto-computed 3-horizon signals (short/medium/long-term)
+- Based on: 52-week position, PER, NI CAGR, ROE, DER, Revenue CAGR
+- BUY/HOLD/SELL with bullet-point reasoning
+
+### Screenshot to Clipboard
+- HD 2x PNG screenshot via html2canvas
+- Copies directly to clipboard (falls back to download on non-HTTPS)
+
+### Security
+- Exception sanitization (no internal info leakage)
+- Input validation on all parameters
+- SSRF protection on external API calls
+
 ### CLI Mode
 - Single or batch ticker analysis
 - Static candlestick chart generation (PNG)

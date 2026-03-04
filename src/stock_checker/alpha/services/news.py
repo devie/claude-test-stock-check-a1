@@ -1,7 +1,11 @@
 """News aggregation service using yfinance."""
 
-import math
+import email.utils
+import re as _re
+import html as _html
+import urllib.request as _urllib_request
 from datetime import datetime
+from urllib.parse import urlparse as _urlparse
 import yfinance as yf
 
 
@@ -27,34 +31,29 @@ _ALLOWED_DOMAINS = {
 def _fetch_summary(url, max_chars=400):
     """Fetch a URL and extract a short summary (first meaningful paragraphs)."""
     try:
-        import urllib.request
-        import html
-        import re
-        from urllib.parse import urlparse
-
-        parsed = urlparse(url)
+        parsed = _urlparse(url)
         if parsed.scheme not in ('http', 'https'):
             return None
         if parsed.hostname and parsed.hostname not in _ALLOWED_DOMAINS:
             return None
 
-        req = urllib.request.Request(
+        req = _urllib_request.Request(
             url,
             headers={'User-Agent': 'Mozilla/5.0 (compatible; StockAlpha/1.0)'},
         )
-        with urllib.request.urlopen(req, timeout=4) as resp:
+        with _urllib_request.urlopen(req, timeout=4) as resp:
             content = resp.read().decode('utf-8', errors='replace')
 
         # Remove scripts and styles
-        content = re.sub(r'<script[^>]*>.*?</script>', '', content, flags=re.DOTALL | re.IGNORECASE)
-        content = re.sub(r'<style[^>]*>.*?</style>', '', content, flags=re.DOTALL | re.IGNORECASE)
+        content = _re.sub(r'<script[^>]*>.*?</script>', '', content, flags=_re.DOTALL | _re.IGNORECASE)
+        content = _re.sub(r'<style[^>]*>.*?</style>', '', content, flags=_re.DOTALL | _re.IGNORECASE)
 
         # Extract <p> text
-        paragraphs = re.findall(r'<p[^>]*>(.*?)</p>', content, flags=re.DOTALL | re.IGNORECASE)
+        paragraphs = _re.findall(r'<p[^>]*>(.*?)</p>', content, flags=_re.DOTALL | _re.IGNORECASE)
         clean = []
         for p in paragraphs:
-            text = re.sub(r'<[^>]+>', '', p)
-            text = html.unescape(text).strip()
+            text = _re.sub(r'<[^>]+>', '', p)
+            text = _html.unescape(text).strip()
             # Skip boilerplate (too short or looks like a nav/button label)
             if len(text) > 60 and not text.lower().startswith(('cookie', 'subscribe', 'sign in', 'log in', 'click')):
                 clean.append(text)
@@ -136,6 +135,57 @@ def _parse_news_item(item, symbol):
         }
 
 
+def _fetch_rss_news(symbol, max_items=5):
+    """Fallback: fetch news via Yahoo Finance RSS for tickers that return nothing from yfinance."""
+    url = f'https://finance.yahoo.com/rss/headline?s={symbol}'
+    try:
+        req = _urllib_request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (compatible; StockAlpha/1.0)'})
+        with _urllib_request.urlopen(req, timeout=6) as resp:
+            content = resp.read().decode('utf-8', errors='replace')
+    except Exception:
+        return []
+
+    result = []
+    for item_xml in _re.findall(r'<item>(.*?)</item>', content, _re.DOTALL)[:max_items]:
+        title_m = _re.search(r'<title>(.*?)</title>', item_xml, _re.DOTALL)
+        link_m = _re.search(r'<link>(.*?)</link>', item_xml, _re.DOTALL)
+        desc_m = _re.search(r'<description>(.*?)</description>', item_xml, _re.DOTALL)
+        date_m = _re.search(r'<pubDate>(.*?)</pubDate>', item_xml, _re.DOTALL)
+
+        title = _html.unescape((title_m.group(1) or '').strip()) if title_m else ''
+        link = (link_m.group(1) or '').strip().split('?')[0] if link_m else ''
+        desc_raw = (desc_m.group(1) or '').strip() if desc_m else ''
+        desc = _html.unescape(_re.sub(r'<[^>]+>', '', desc_raw)).strip()
+        pub_date_str = (date_m.group(1) or '').strip() if date_m else ''
+
+        try:
+            dt = email.utils.parsedate_to_datetime(pub_date_str)
+            pub_ts = dt.timestamp()
+            pub_date = dt.strftime('%Y-%m-%d')
+        except Exception:
+            pub_ts = 0
+            pub_date = ''
+
+        parsed_link = _urlparse(link)
+        if parsed_link.hostname and parsed_link.hostname not in _ALLOWED_DOMAINS:
+            continue
+        if not title or not link:
+            continue
+
+        result.append({
+            'ticker': symbol,
+            'title': title,
+            'publisher': 'Yahoo Finance',
+            'url': link,
+            'pub_date': pub_date,
+            'pub_ts': pub_ts,
+            'thumbnail': None,
+            'summary': desc or None,
+        })
+
+    return result
+
+
 def get_news(tickers, max_articles=5, max_per_ticker=1, days=7):
     """Fetch and aggregate news articles for a list of tickers.
 
@@ -161,6 +211,9 @@ def get_news(tickers, max_articles=5, max_per_ticker=1, days=7):
     by_ticker: dict[str, list[dict]] = {}
     url_ticker_count: dict[str, int] = {}  # how many tickers share this URL
 
+    # Fallback cutoff: 90 days (for tickers with sparse news like emerging-market stocks)
+    fallback_cutoff_ts = datetime.utcnow().timestamp() - 90 * 86400
+
     for symbol in tickers:
         ticker_articles = []
         try:
@@ -176,6 +229,17 @@ def get_news(tickers, max_articles=5, max_per_ticker=1, days=7):
                 url_ticker_count[url] = url_ticker_count.get(url, 0) + 1
         except Exception:
             pass
+
+        # RSS fallback when yfinance returns nothing for this ticker
+        if not ticker_articles:
+            for parsed in _fetch_rss_news(symbol):
+                url = parsed.get('url', '')
+                ts = parsed.get('pub_ts', 0)
+                if not url or ts < fallback_cutoff_ts:
+                    continue
+                ticker_articles.append(parsed)
+                url_ticker_count[url] = url_ticker_count.get(url, 0) + 1
+
         by_ticker[symbol] = ticker_articles
 
     # Pass 2 — per ticker: rank by (cross-ticker count desc, recency desc), keep top N

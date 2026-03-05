@@ -127,16 +127,17 @@ a.ext:hover{text-decoration:underline}
       <thead>
         <tr>
           <th>Ticker</th>
-          <th>Score</th>
+          <th style="cursor:pointer" onclick="sortTable(1)">Score ▼</th>
           <th>Severity</th>
-          <th>Price</th>
-          <th>Chg %</th>
-          <th>Vol Ratio</th>
-          <th>Z-Score</th>
-          <th>PBV</th>
-          <th>PBV Jump</th>
+          <th style="cursor:pointer" onclick="sortTable(3)">Price</th>
+          <th style="cursor:pointer" onclick="sortTable(4)">Chg %</th>
+          <th style="cursor:pointer" onclick="sortTable(5)">Vol Ratio</th>
+          <th style="cursor:pointer" onclick="sortTable(6)">Z-Score</th>
+          <th style="cursor:pointer" onclick="sortTable(7)">PBV</th>
+          <th style="cursor:pointer" onclick="sortTable(8)">PBV Jump</th>
           <th>Rules</th>
           <th>UMA</th>
+          <th>UMA Date</th>
           <th>Links</th>
         </tr>
       </thead>
@@ -147,6 +148,43 @@ a.ext:hover{text-decoration:underline}
 
 <script>
 let _currentSource = null;
+
+// ── Number formatting helpers ────────────────────────────────────────────────
+const _fmtInt   = new Intl.NumberFormat('id-ID', {maximumFractionDigits: 0});
+const _fmtFloat = new Intl.NumberFormat('id-ID', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+const _fmtPct   = new Intl.NumberFormat('id-ID', {minimumFractionDigits: 2, maximumFractionDigits: 2, signDisplay: 'exceptZero'});
+
+function fmtPrice(v) {
+  if (v == null) return '—';
+  return v >= 100 ? _fmtInt.format(v) : _fmtFloat.format(v);
+}
+function fmtFloat2(v) { return v != null ? _fmtFloat.format(v) : '—'; }
+function fmtPct(v)    { return v != null ? _fmtPct.format(v) + '%' : '—'; }
+function fmtX(v)      { return v != null ? _fmtFloat.format(v) + 'x' : '—'; }
+
+// ── Table sort ───────────────────────────────────────────────────────────────
+let _sortCol = 1, _sortDir = -1;  // default: score descending
+
+function sortTable(col) {
+  if (_sortCol === col) { _sortDir = -_sortDir; }
+  else { _sortCol = col; _sortDir = -1; }
+  const tbody = document.getElementById('result-body');
+  const rows = Array.from(tbody.querySelectorAll('tr'));
+  rows.sort((a, b) => {
+    const va = parseFloat(a.cells[col]?.dataset.val ?? 'NaN');
+    const vb = parseFloat(b.cells[col]?.dataset.val ?? 'NaN');
+    if (isNaN(va) && isNaN(vb)) return 0;
+    if (isNaN(va)) return 1;
+    if (isNaN(vb)) return -1;
+    return (va - vb) * _sortDir;
+  });
+  rows.forEach(r => tbody.appendChild(r));
+  // Update header arrows
+  document.querySelectorAll('#result-table th').forEach((th, i) => {
+    th.textContent = th.textContent.replace(/ [▲▼]$/, '');
+    if (i === col) th.textContent += _sortDir === -1 ? ' ▼' : ' ▲';
+  });
+}
 
 function addTicker(t) {
   const el = document.getElementById('ticker-input');
@@ -283,7 +321,7 @@ function renderResults(results, runAt) {
   tbody.innerHTML = '';
   results.forEach(r => {
     if (r.error) {
-      tbody.innerHTML += `<tr><td>${r.ticker}</td><td colspan="11" style="color:#ef5350">${r.error}</td></tr>`;
+      tbody.innerHTML += `<tr><td>${r.ticker}</td><td colspan="12" style="color:#ef5350">${r.error}</td></tr>`;
       return;
     }
     const sev = r.severity || 'none';
@@ -291,13 +329,14 @@ function renderResults(results, runAt) {
     const fillClass = sev === 'critical' || sev === 'high' ? sev : (sev === 'medium' ? 'medium' : '');
     const rules = (r.rules_triggered || []).map(n => `<span class="tag">${n}</span>`).join('');
     const umaTag = r.is_uma ? '<span class="badge badge-uma">UMA</span>' : '—';
+    const chgColor = r.change_pct != null ? (r.change_pct >= 0 ? '#26a69a' : '#ef5350') : '';
     const chg = r.change_pct != null
-      ? `<span style="color:${r.change_pct>=0?'#26a69a':'#ef5350'}">${r.change_pct>0?'+':''}${r.change_pct}%</span>`
+      ? `<span style="color:${chgColor}">${fmtPct(r.change_pct)}</span>`
       : '—';
     tbody.innerHTML += `
       <tr>
         <td><strong>${r.ticker}</strong></td>
-        <td>
+        <td data-val="${r.score ?? ''}">
           <div class="score-bar">
             <span style="min-width:36px;font-weight:600;color:${scoreW>=70?'#ef5350':scoreW>=40?'#ffca28':'#aaa'}">${r.score}</span>
             <div style="width:60px;background:#1e1e2a;border-radius:3px;overflow:hidden">
@@ -306,16 +345,17 @@ function renderResults(results, runAt) {
           </div>
         </td>
         <td><span class="badge badge-${sev}">${sev}</span></td>
-        <td>${r.price!=null?r.price.toLocaleString():'—'}</td>
-        <td>${chg}</td>
-        <td>${r.vol_ratio!=null?r.vol_ratio+'x':'—'}</td>
-        <td>${r.z_score!=null?r.z_score:'—'}</td>
-        <td>${r.pbv!=null?r.pbv:'—'}</td>
-        <td>${r.pbv_jump!=null?r.pbv_jump+'x':'—'}</td>
+        <td data-val="${r.price ?? ''}">${fmtPrice(r.price)}</td>
+        <td data-val="${r.change_pct ?? ''}">${chg}</td>
+        <td data-val="${r.vol_ratio ?? ''}">${fmtX(r.vol_ratio)}</td>
+        <td data-val="${r.z_score ?? ''}">${fmtFloat2(r.z_score)}</td>
+        <td data-val="${r.pbv ?? ''}">${fmtFloat2(r.pbv)}</td>
+        <td data-val="${r.pbv_jump ?? ''}">${fmtX(r.pbv_jump)}</td>
         <td>${rules||'—'}</td>
         <td>${umaTag}</td>
+        <td style="color:#aaa;font-size:12px">${r.uma_date || '—'}</td>
         <td>
-          <a class="ext" href="${r.links?.idx||'#'}" target="_blank">IDX</a> ·
+          <a class="ext" href="https://stock.zuhdi.id/alpha/#detail/${r.ticker}" target="_blank">Detail</a> ·
           <a class="ext" href="${r.links?.chart||'#'}" target="_blank">Chart</a>
         </td>
       </tr>`;

@@ -33,7 +33,7 @@ _SESSION.headers.update({
     "User-Agent": _BROWSER_UA,
     "Accept": _BROWSER_ACCEPT,
     "Accept-Language": "en-US,en;q=0.9,id;q=0.8",
-    "Accept-Encoding": "gzip, deflate, br",
+    "Accept-Encoding": "gzip, deflate",
     "Connection": "keep-alive",
     "Upgrade-Insecure-Requests": "1",
     "Sec-Fetch-Dest": "document",
@@ -46,7 +46,7 @@ def _is_retryable(exc: BaseException) -> bool:
     """Retry on network errors AND on HTTP 429/5xx."""
     if isinstance(exc, HTTPError):
         code = exc.response.status_code if exc.response is not None else 0
-        return code in (429, 500, 502, 503, 504)
+        return code in (403, 429, 500, 502, 503, 504)
     return isinstance(exc, (requests.Timeout, requests.ConnectionError))
 
 
@@ -98,17 +98,27 @@ def get_html(
     timeout: int = 25,
     referer: str | None = None,
 ) -> str:
-    """GET with retry; returns HTML text. Pass referer for sites that check it."""
+    """GET with retry; returns HTML text. Tolerates partial chunked responses."""
     time.sleep(random.uniform(0.15, 0.45))
     merged = {}
     if referer:
         merged["Referer"] = referer
     if headers:
         merged.update(headers)
-    resp = _SESSION.get(url, headers=merged or None, timeout=timeout)
+    resp = _SESSION.get(url, headers=merged or None, timeout=timeout, stream=True)
     if not resp.ok:
         raise HTTPError(
             f"HTTP {resp.status_code} for {resp.url}",
             response=resp,
         )
-    return resp.text
+    # Stream read: tolerate IncompleteRead / ChunkedEncodingError mid-transfer
+    chunks: list[bytes] = []
+    try:
+        for chunk in resp.iter_content(chunk_size=8192):
+            if chunk:
+                chunks.append(chunk)
+    except Exception as exc:
+        if not chunks:
+            raise
+        logger.debug("get_html partial read (%d bytes): %s", sum(len(c) for c in chunks), exc)
+    return b"".join(chunks).decode(resp.encoding or "utf-8", errors="replace")

@@ -62,16 +62,17 @@ def _make_scraper(cfg) -> IDXUMAScraper:
     )
 
 
-def _fetch_uma_cached() -> set[str]:
+def _fetch_uma_cached() -> dict[str, str]:
+    """Return {ticker: date_listed} for all UMA entries (cached 1h in-process)."""
     with _uma_lock:
         if "tickers" in _uma_cache:
             return _uma_cache["tickers"]
     try:
         entries = _make_scraper(_cfg()).fetch()
-        tickers = {e.ticker for e in entries}
+        tickers = {e.ticker: e.date_listed for e in entries}
     except Exception as exc:
         logger.warning("UMA fetch failed: %s", exc)
-        tickers = set()
+        tickers = {}
     with _uma_lock:
         _uma_cache["tickers"] = tickers
     return tickers
@@ -112,7 +113,7 @@ def screen():
     from ..providers.fundamentals_finnhub import FinnhubProvider
     price_prov = _make_price_prov(cfg)
     fund_prov = FinnhubProvider(cfg.finnhub_api_key)
-    uma_tickers = _fetch_uma_cached()
+    uma_map = _fetch_uma_cached()
 
     results = []
     for ticker in tickers:
@@ -120,7 +121,7 @@ def screen():
             ohlcv = price_prov.fetch(ticker)
             fund = fund_prov.fetch(ticker)
             metrics = compute_metrics(ohlcv.df, ticker=ticker, bvps=fund.bvps)
-            is_uma = ticker in uma_tickers
+            is_uma = ticker in uma_map
             rules = evaluate_all(metrics, cfg.rules, is_uma=is_uma)
             sr = compute_score(metrics, rules, cfg.scoring)
             results.append({
@@ -136,6 +137,7 @@ def screen():
                 "pbv": round(metrics.pbv_today, 2) if metrics.pbv_today else None,
                 "pbv_jump": round(metrics.pbv_jump, 2) if metrics.pbv_jump else None,
                 "is_uma": is_uma,
+                "uma_date": uma_map.get(ticker),
                 "links": {
                     "idx": (
                         "https://www.idx.co.id/en/listed-companies/company-profiles/"

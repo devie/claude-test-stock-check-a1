@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import re
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from bs4 import BeautifulSoup
@@ -17,10 +17,12 @@ logger = get_logger(__name__)
 
 # Primary: newer idx.id domain + path specified by req
 _UMA_HTML_PRIMARY  = "https://www.idx.id/en/news/unusual-market-activity-uma/"
-_UMA_HTML_FALLBACK = "https://www.idx.co.id/en/news/unusual-market-activity/"
+_UMA_HTML_FALLBACK = "https://www.idx.id/id/berita/aktivitas-perdagangan-tidak-wajar-uma/"
 _UMA_JSON_PRIMARY  = "https://www.idx.id/umbraco/Surface/NewsAjax/GetNewsAjax"
 _UMA_JSON_FALLBACK = "https://www.idx.co.id/umbraco/Surface/NewsAjax/GetNewsAjax"
 
+# Matches IDX SSR-embedded PDF paths: 20260304-WAS_UMA_MLPT.pdf
+_PDF_PATH_RE = re.compile(r"(\d{8})-WAS_UMA_([A-Z]{2,5})\.pdf")
 _TICKER_RE = re.compile(r"\b([A-Z]{3,5})\b")
 _SKIP_WORDS = {
     "THE", "IDX", "UMA", "BEI", "OJK", "FROM", "DATE", "CODE", "NAME",
@@ -153,10 +155,10 @@ def _fetch_live(html_url: str) -> list[UMAEntry]:
         except Exception as exc:
             logger.debug("uma_idx JSON API %s failed: %s", api_url, exc)
 
-    # HTML fallback — try both domains
+    # HTML fallback — try primary then Indonesian-language path (same domain)
     for url, referer in (
         (html_url,           "https://www.idx.id/"),
-        (_UMA_HTML_FALLBACK, "https://www.idx.co.id/"),
+        (_UMA_HTML_FALLBACK, "https://www.idx.id/"),
     ):
         try:
             html = get_html(
@@ -220,11 +222,51 @@ def _parse_uma_json(data: object) -> list[UMAEntry]:
     return entries
 
 
-def parse_uma_html(html: str) -> list[UMAEntry]:
-    soup = BeautifulSoup(html, "html.parser")
+def _parse_uma_pdf_paths(html: str, days: int = 90) -> list[UMAEntry]:
+    """Extract UMA tickers from Nuxt SSR-embedded PDF paths.
+
+    IDX's new Nuxt.js site embeds paths like ``20260304-WAS_UMA_MLPT.pdf``
+    directly in the SSR HTML. Filter to entries within the last ``days`` days
+    so we return recent UMA announcements, not the full historical archive.
+    """
+    cutoff = datetime.now(timezone.utc).date() - timedelta(days=days)
+
+    seen: set[str] = set()
     entries: list[UMAEntry] = []
+    for m in _PDF_PATH_RE.finditer(html):
+        date_str, raw_ticker = m.group(1), m.group(2)
+        try:
+            entry_date = datetime.strptime(date_str, "%Y%m%d").date()
+        except ValueError:
+            continue
+        if entry_date < cutoff:
+            continue
+        ticker = _normalize_ticker(raw_ticker)
+        if ticker in seen:
+            continue
+        seen.add(ticker)
+        entries.append(UMAEntry(
+            ticker=ticker,
+            date_listed=entry_date.isoformat(),
+            reason=f"UMA announcement {entry_date.isoformat()}",
+        ))
+
+    # Sort by date descending (most recent first)
+    entries.sort(key=lambda e: e.date_listed, reverse=True)
+    return entries
+
+
+def parse_uma_html(html: str) -> list[UMAEntry]:
+    # Strategy 0: IDX Nuxt SSR — PDF path pattern (fast regex, no BS4 needed)
+    entries = _parse_uma_pdf_paths(html)
+    if entries:
+        return entries
+
+    soup = BeautifulSoup(html, "html.parser")
+    entries = []
     seen: set[str] = set()
 
+    # Strategy 1: table rows
     for row in soup.select("table tr"):
         cells = [td.get_text(strip=True) for td in row.find_all(["td", "th"])]
         if len(cells) < 2:
@@ -238,6 +280,7 @@ def parse_uma_html(html: str) -> list[UMAEntry]:
                 reason=" | ".join(cells)[:300],
             ))
 
+    # Strategy 2: announcement items / data-code attributes
     if not entries:
         for item in soup.select(
             "li, .announcement-item, .news-item, article, .post, [data-code]"
@@ -250,6 +293,20 @@ def parse_uma_html(html: str) -> list[UMAEntry]:
                     ticker=ticker,
                     date_listed=datetime.now(timezone.utc).date().isoformat(),
                     reason=item.get_text(strip=True)[:300],
+                ))
+
+    # Strategy 3: scan <a> link text and href for 4-letter ticker codes
+    if not entries:
+        for a in soup.find_all("a", href=True):
+            text = a.get_text(strip=True)
+            href = a["href"]
+            ticker = _find_ticker([text, href])
+            if ticker and ticker not in seen:
+                seen.add(ticker)
+                entries.append(UMAEntry(
+                    ticker=ticker,
+                    date_listed=datetime.now(timezone.utc).date().isoformat(),
+                    reason=text[:300],
                 ))
 
     return entries

@@ -59,7 +59,7 @@ class AlertsConfig(BaseModel):
 
 class UMAConfig(BaseModel):
     url: str = "https://www.idx.id/en/news/unusual-market-activity-uma/"
-    max_count: int = 20
+    max_count: int = 50
     cache_ttl_hours: int = 24
     cache_file: str = "data/uma_cache.json"
 

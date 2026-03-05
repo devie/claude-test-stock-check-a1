@@ -1,12 +1,13 @@
-"""IDX UMA (Unusual Market Activity) scraper with caching and fallback."""
+"""IDX UMA scraper — file-backed 24h cache, fallback to stale on error."""
 from __future__ import annotations
 
+import json
 import re
 import threading
 from datetime import datetime, timezone
+from pathlib import Path
 
 from bs4 import BeautifulSoup
-from cachetools import TTLCache
 
 from ..utils.http import get_html, get_json
 from ..utils.logging import get_logger
@@ -14,10 +15,11 @@ from .base import UMAEntry, UMAProvider
 
 logger = get_logger(__name__)
 
-# IDX website changed to SPA; try the JSON API endpoint first, then HTML fallback
-_UMA_API = "https://www.idx.co.id/umbraco/Surface/NewsAjax/GetNewsAjax"
-_UMA_HTML = "https://www.idx.co.id/en/news/unusual-market-activity/"
-_IDX_REFERER = "https://www.idx.co.id/"
+# Primary: newer idx.id domain + path specified by req
+_UMA_HTML_PRIMARY  = "https://www.idx.id/en/news/unusual-market-activity-uma/"
+_UMA_HTML_FALLBACK = "https://www.idx.co.id/en/news/unusual-market-activity/"
+_UMA_JSON_PRIMARY  = "https://www.idx.id/umbraco/Surface/NewsAjax/GetNewsAjax"
+_UMA_JSON_FALLBACK = "https://www.idx.co.id/umbraco/Surface/NewsAjax/GetNewsAjax"
 
 _TICKER_RE = re.compile(r"\b([A-Z]{3,5})\b")
 _SKIP_WORDS = {
@@ -27,79 +29,166 @@ _SKIP_WORDS = {
 }
 _DATE_FMTS = ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%B %d, %Y", "%d %B %Y")
 
-# 1-hour TTL cache — shared across all instances, thread-safe
-_cache: TTLCache = TTLCache(maxsize=4, ttl=3600)
-_cache_lock = threading.Lock()
+_mem_cache: list[UMAEntry] | None = None
+_mem_ts: datetime | None = None
+_mem_lock = threading.Lock()
 
 
 class IDXUMAScraper(UMAProvider):
-    def __init__(self, url: str = _UMA_HTML) -> None:
+    def __init__(
+        self,
+        url: str = _UMA_HTML_PRIMARY,
+        max_count: int = 20,
+        cache_file: str = "data/uma_cache.json",
+        cache_ttl_hours: int = 24,
+    ) -> None:
         self._url = url
+        self._max = max_count
+        self._cache_file = cache_file
+        self._ttl_hours = cache_ttl_hours
 
     def fetch(self) -> list[UMAEntry]:
-        with _cache_lock:
-            if "uma" in _cache:
-                logger.debug("uma_idx: cache hit")
-                return _cache["uma"]
+        # 1. In-memory hot cache (1-min TTL for repeated calls within same process)
+        global _mem_cache, _mem_ts
+        with _mem_lock:
+            if _mem_cache is not None and _mem_ts is not None:
+                age_s = (datetime.now(timezone.utc) - _mem_ts).total_seconds()
+                if age_s < 60:
+                    return _mem_cache[: self._max]
 
-        entries = _fetch_with_fallback(self._url)
+        # 2. File cache (24h TTL)
+        cached = _load_file_cache(self._cache_file, self._ttl_hours)
+        if cached is not None:
+            logger.debug("uma_idx: file cache hit (%d entries)", len(cached))
+            with _mem_lock:
+                _mem_cache, _mem_ts = cached, datetime.now(timezone.utc)
+            return cached[: self._max]
 
-        with _cache_lock:
-            _cache["uma"] = entries
-        return entries
+        # 3. Live fetch
+        entries = _fetch_live(self._url)
 
-
-def _fetch_with_fallback(html_url: str) -> list[UMAEntry]:
-    """Try JSON API → HTML scrape → empty list."""
-    # Strategy 1: IDX AJAX JSON endpoint
-    try:
-        data = get_json(
-            _UMA_API,
-            params={"category": "uma", "page": 1, "pagesize": 50},
-            headers={
-                "Referer": _IDX_REFERER,
-                "X-Requested-With": "XMLHttpRequest",
-                "Accept": "application/json, text/javascript, */*; q=0.01",
-            },
-        )
-        entries = _parse_uma_json(data)
         if entries:
-            logger.info("uma_idx: %d entries via JSON API", len(entries))
-            return entries
-    except Exception as exc:
-        logger.debug("uma_idx JSON API failed (%s), trying HTML", exc)
-
-    # Strategy 2: HTML scrape with browser headers
-    try:
-        html = get_html(
-            html_url,
-            referer=_IDX_REFERER,
-            headers={
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                "Sec-Fetch-Dest": "document",
-                "Sec-Fetch-Mode": "navigate",
-                "Sec-Fetch-Site": "same-origin",
-            },
-        )
-        entries = parse_uma_html(html)
-        if entries:
-            logger.info("uma_idx: %d entries via HTML scrape", len(entries))
+            _save_file_cache(entries, self._cache_file, self._ttl_hours)
         else:
-            logger.warning(
-                "uma_idx: HTML page returned 0 entries — "
-                "page may require JavaScript rendering"
-            )
-        return entries
-    except Exception as exc:
-        logger.warning("uma_idx: HTML scrape failed (%s) — returning empty list", exc)
-        return []
+            # 4. Stale fallback — load expired cache rather than returning nothing
+            stale = _load_file_cache(self._cache_file, ttl_hours=999999)
+            if stale:
+                logger.warning(
+                    "uma_idx: live fetch returned 0 entries; using stale cache (%d)",
+                    len(stale),
+                )
+                entries = stale
 
+        with _mem_lock:
+            _mem_cache, _mem_ts = entries, datetime.now(timezone.utc)
+        return entries[: self._max]
+
+
+# ── file cache helpers ────────────────────────────────────────────────────────
+
+def _load_file_cache(cache_file: str, ttl_hours: int) -> list[UMAEntry] | None:
+    p = Path(cache_file)
+    if not p.exists():
+        return None
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        ts = datetime.fromisoformat(data["timestamp"])
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        age_h = (datetime.now(timezone.utc) - ts).total_seconds() / 3600
+        if age_h >= ttl_hours:
+            return None
+        return [
+            UMAEntry(
+                ticker=e["ticker"],
+                date_listed=e["date_listed"],
+                reason=e["reason"],
+            )
+            for e in data.get("entries", [])
+        ]
+    except Exception as exc:
+        logger.debug("uma_idx: cache read error: %s", exc)
+        return None
+
+
+def _save_file_cache(
+    entries: list[UMAEntry], cache_file: str, ttl_hours: int
+) -> None:
+    p = Path(cache_file)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "ttl_hours": ttl_hours,
+        "entries": [
+            {"ticker": e.ticker, "date_listed": e.date_listed, "reason": e.reason}
+            for e in entries
+        ],
+    }
+    p.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    logger.debug("uma_idx: saved %d entries to %s", len(entries), cache_file)
+
+
+# ── live fetch strategies ─────────────────────────────────────────────────────
+
+def _fetch_live(html_url: str) -> list[UMAEntry]:
+    """Try JSON API (primary + fallback domains) → HTML scrape → empty list."""
+    for api_url, referer in (
+        (_UMA_JSON_PRIMARY,  "https://www.idx.id/"),
+        (_UMA_JSON_FALLBACK, "https://www.idx.co.id/"),
+    ):
+        try:
+            data = get_json(
+                api_url,
+                params={"category": "uma", "page": 1, "pagesize": 50},
+                headers={
+                    "Referer": referer,
+                    "X-Requested-With": "XMLHttpRequest",
+                    "Accept": "application/json, text/javascript, */*; q=0.01",
+                },
+            )
+            entries = _parse_uma_json(data)
+            if entries:
+                logger.info("uma_idx: %d entries via JSON API %s", len(entries), api_url)
+                return entries
+        except Exception as exc:
+            logger.debug("uma_idx JSON API %s failed: %s", api_url, exc)
+
+    # HTML fallback — try both domains
+    for url, referer in (
+        (html_url,           "https://www.idx.id/"),
+        (_UMA_HTML_FALLBACK, "https://www.idx.co.id/"),
+    ):
+        try:
+            html = get_html(
+                url,
+                referer=referer,
+                headers={
+                    "Accept": (
+                        "text/html,application/xhtml+xml,"
+                        "application/xml;q=0.9,*/*;q=0.8"
+                    ),
+                    "Sec-Fetch-Dest": "document",
+                    "Sec-Fetch-Mode": "navigate",
+                    "Sec-Fetch-Site": "same-origin",
+                },
+            )
+            entries = parse_uma_html(html)
+            if entries:
+                logger.info("uma_idx: %d entries via HTML %s", len(entries), url)
+                return entries
+        except Exception as exc:
+            logger.debug("uma_idx HTML %s failed: %s", url, exc)
+
+    logger.warning("uma_idx: all strategies failed — returning empty list")
+    return []
+
+
+# ── parsers ───────────────────────────────────────────────────────────────────
 
 def _parse_uma_json(data: object) -> list[UMAEntry]:
-    """Parse IDX AJAX JSON response."""
     if not isinstance(data, (dict, list)):
         return []
-    items = data if isinstance(data, list) else (
+    items: list = data if isinstance(data, list) else (
         data.get("data") or data.get("items") or data.get("results") or []
     )
     entries: list[UMAEntry] = []
@@ -107,48 +196,35 @@ def _parse_uma_json(data: object) -> list[UMAEntry]:
     for item in items:
         if not isinstance(item, dict):
             continue
-        # Look for ticker in common JSON field names
-        raw_ticker = (
+        raw = (
             item.get("stockCode") or item.get("code") or
             item.get("emiten") or item.get("ticker") or ""
         )
-        if raw_ticker:
-            ticker = _normalize_ticker(str(raw_ticker).strip().upper())
+        if raw:
+            ticker: str | None = _normalize_ticker(str(raw).strip().upper())
         else:
-            # Fall back to scanning text fields
             text = " ".join(str(v) for v in item.values() if isinstance(v, str))
             ticker = _find_ticker([text])
         if not ticker or ticker in seen:
             continue
         seen.add(ticker)
-        date_str = _extract_date_from_dict(item)
         reason = (
             item.get("title") or item.get("description") or
-            item.get("content") or str(item)
+            item.get("content") or ""
         )[:300]
-        entries.append(UMAEntry(ticker=ticker, date_listed=date_str, reason=reason))
+        entries.append(UMAEntry(
+            ticker=ticker,
+            date_listed=_extract_date_from_dict(item),
+            reason=reason,
+        ))
     return entries
 
 
-def _extract_date_from_dict(item: dict) -> str:
-    for key in ("date", "publishedDate", "created", "time", "tanggal"):
-        v = item.get(key, "")
-        if v:
-            for fmt in _DATE_FMTS:
-                try:
-                    return datetime.strptime(str(v)[:10], fmt).date().isoformat()
-                except ValueError:
-                    continue
-    return datetime.now(timezone.utc).date().isoformat()
-
-
 def parse_uma_html(html: str) -> list[UMAEntry]:
-    """Parse IDX UMA page HTML — multiple selector strategies."""
     soup = BeautifulSoup(html, "html.parser")
     entries: list[UMAEntry] = []
     seen: set[str] = set()
 
-    # Strategy 1: table rows
     for row in soup.select("table tr"):
         cells = [td.get_text(strip=True) for td in row.find_all(["td", "th"])]
         if len(cells) < 2:
@@ -162,33 +238,24 @@ def parse_uma_html(html: str) -> list[UMAEntry]:
                 reason=" | ".join(cells)[:300],
             ))
 
-    # Strategy 2: structured announcement items
     if not entries:
         for item in soup.select(
-            "li, .announcement-item, .news-item, "
-            "article, .post, .item-uma, [data-code]"
+            "li, .announcement-item, .news-item, article, .post, [data-code]"
         ):
-            # Check for data-code attribute (IDX sometimes uses this)
             code = item.get("data-code") or item.get("data-stock")
-            if code:
-                ticker = _normalize_ticker(code.strip().upper())
-            else:
-                text = item.get_text(strip=True)
-                if len(text) < 5:
-                    continue
-                ticker = _find_ticker([text])
-            if ticker and ticker not in seen:
+            ticker = _normalize_ticker(code.strip().upper()) if code else _find_ticker([item.get_text(strip=True)])
+            if ticker and ticker not in seen and len(item.get_text(strip=True)) >= 5:
                 seen.add(ticker)
-                text = item.get_text(strip=True)
                 entries.append(UMAEntry(
                     ticker=ticker,
                     date_listed=datetime.now(timezone.utc).date().isoformat(),
-                    reason=text[:300],
+                    reason=item.get_text(strip=True)[:300],
                 ))
 
-    logger.debug("uma_idx parse_html: %d entries", len(entries))
     return entries
 
+
+# ── helpers ───────────────────────────────────────────────────────────────────
 
 def _find_ticker(candidates: list[str]) -> str | None:
     for text in candidates:
@@ -200,10 +267,7 @@ def _find_ticker(candidates: list[str]) -> str | None:
 
 
 def _normalize_ticker(raw: str) -> str:
-    """Ensure IDX ticker has .JK suffix."""
-    if raw.endswith(".JK"):
-        return raw
-    return f"{raw}.JK"
+    return raw if raw.endswith(".JK") else f"{raw}.JK"
 
 
 def _extract_date(cells: list[str]) -> str:
@@ -211,6 +275,17 @@ def _extract_date(cells: list[str]) -> str:
         for fmt in _DATE_FMTS:
             try:
                 return datetime.strptime(cell.strip(), fmt).date().isoformat()
+            except ValueError:
+                continue
+    return datetime.now(timezone.utc).date().isoformat()
+
+
+def _extract_date_from_dict(item: dict) -> str:
+    for key in ("date", "publishedDate", "created", "time", "tanggal"):
+        v = str(item.get(key, ""))
+        for fmt in _DATE_FMTS:
+            try:
+                return datetime.strptime(v[:10], fmt).date().isoformat()
             except ValueError:
                 continue
     return datetime.now(timezone.utc).date().isoformat()

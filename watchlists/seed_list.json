@@ -1,0 +1,26 @@
+{
+  "source": "Seed List",
+  "description": "IDX 20 most-traded stocks by sector — static baseline",
+  "tickers": [
+    "BBCA.JK",
+    "BBRI.JK",
+    "BMRI.JK",
+    "BNGA.JK",
+    "TLKM.JK",
+    "ISAT.JK",
+    "ASII.JK",
+    "UNVR.JK",
+    "INDF.JK",
+    "ICBP.JK",
+    "GOTO.JK",
+    "BREN.JK",
+    "ADRO.JK",
+    "PTBA.JK",
+    "ANTM.JK",
+    "TINS.JK",
+    "PGAS.JK",
+    "AALI.JK",
+    "SMRA.JK",
+    "MYOR.JK"
+  ]
+}

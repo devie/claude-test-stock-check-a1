@@ -14,19 +14,26 @@ nav{background:#16161e;border-bottom:1px solid #2a2a3e;padding:14px 24px;display
 main{max-width:1300px;margin:0 auto;padding:24px}
 h1{font-size:22px;font-weight:700;color:#e0e0e0;margin-bottom:4px}
 .subtitle{color:#666;font-size:13px;margin-bottom:20px}
-.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start;margin-bottom:20px}
+.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start;margin-bottom:16px}
 textarea{background:#1e1e2f;border:1px solid #3a3a5e;color:#e0e0e0;padding:10px 12px;border-radius:6px;font-size:13px;width:360px;height:80px;resize:vertical;outline:none;font-family:monospace}
 textarea:focus{border-color:#26a69a}
-.btn{background:#26a69a;color:#fff;border:none;padding:10px 20px;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;transition:background .2s;white-space:nowrap}
+.btn-group{display:flex;flex-direction:column;gap:6px;padding-top:20px}
+.btn{background:#26a69a;color:#fff;border:none;padding:9px 18px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;transition:background .2s;white-space:nowrap;text-align:left}
 .btn:hover{background:#2bbd9e}
 .btn:disabled{background:#3a3a5e;cursor:not-allowed}
 .btn-secondary{background:#1e1e2f;border:1px solid #3a3a5e;color:#aaa}
 .btn-secondary:hover{border-color:#26a69a;color:#26a69a;background:#1a2a28}
+.btn-danger{background:#1e1e2f;border:1px solid #4a2a2a;color:#888}
+.btn-danger:hover{border-color:#ef5350;color:#ef5350;background:#2d1b1b}
+.source-badge{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:12px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;background:#1e1e2f;border:1px solid #3a3a5e;color:#777}
+.source-badge.uma{background:#4a0a3a22;border-color:#e91e8c55;color:#e91e8c}
+.source-badge.seed{background:#0a2a1a22;border-color:#26a69a55;color:#26a69a}
 .quick-list{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .quick-list span{color:#555;font-size:12px}
 .chip{background:#1e1e2f;border:1px solid #3a3a5e;color:#aaa;padding:3px 9px;border-radius:12px;font-size:12px;cursor:pointer}
 .chip:hover{border-color:#26a69a;color:#26a69a}
-.status-bar{margin-bottom:16px;font-size:13px;color:#777;min-height:20px}
+.toolbar-right{display:flex;flex-direction:column;gap:8px;padding-top:20px}
+.status-bar{display:flex;align-items:center;gap:10px;margin-bottom:14px;font-size:13px;color:#777;min-height:22px}
 .spinner{display:inline-block;width:14px;height:14px;border:2px solid #3a3a5e;border-top-color:#26a69a;border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle;margin-right:6px}
 @keyframes spin{to{transform:rotate(360deg)}}
 table{width:100%;border-collapse:collapse;font-size:13px}
@@ -74,15 +81,22 @@ a.ext:hover{text-decoration:underline}
   <p class="subtitle">Detects unusual price spikes, volume anomalies, PBV jumps, and UMA-listed tickers.</p>
 
   <div class="toolbar">
+    <!-- Ticker input -->
     <div>
       <div style="color:#777;font-size:12px;margin-bottom:4px">Tickers (one per line or comma-separated)</div>
       <textarea id="ticker-input" placeholder="BBCA.JK&#10;TLKM.JK&#10;BREN.JK"></textarea>
     </div>
-    <div style="display:flex;flex-direction:column;gap:8px;padding-top:20px">
-      <button class="btn" id="btn-screen" onclick="runScreen()">Run Screen</button>
-      <button class="btn btn-secondary" onclick="loadUMA()">Load UMA List</button>
+
+    <!-- Primary action + list loaders -->
+    <div class="btn-group">
+      <button class="btn" id="btn-screen" onclick="runScreen()">&#9654; Run Screen</button>
+      <button class="btn btn-secondary" id="btn-uma" onclick="loadUMA()">&#8681; Load UMA List</button>
+      <button class="btn btn-secondary" id="btn-seed" onclick="loadSeed()">&#8681; Load Seed List</button>
+      <button class="btn btn-danger" onclick="clearAll()">&#215; Clear</button>
     </div>
-    <div style="padding-top:20px">
+
+    <!-- Quick-add chips -->
+    <div class="toolbar-right">
       <div class="quick-list">
         <span>Quick:</span>
         <span class="chip" onclick="addTicker('BBCA.JK')">BBCA.JK</span>
@@ -98,7 +112,12 @@ a.ext:hover{text-decoration:underline}
   </div>
 
   <div id="error" class="error-msg" style="display:none"></div>
-  <div class="status-bar" id="status"></div>
+
+  <!-- Status bar + source badge -->
+  <div class="status-bar">
+    <span id="status"></span>
+    <span id="source-badge" class="source-badge" style="display:none"></span>
+  </div>
 
   <div id="summary-cards" class="card-summary" style="display:none"></div>
 
@@ -127,6 +146,8 @@ a.ext:hover{text-decoration:underline}
 </main>
 
 <script>
+let _currentSource = null;
+
 function addTicker(t) {
   const el = document.getElementById('ticker-input');
   const cur = el.value.trim();
@@ -138,6 +159,27 @@ function parseTickers() {
     .split(/[\n,;]+/)
     .map(t => t.trim().toUpperCase())
     .filter(t => t.length >= 3);
+}
+
+function clearAll() {
+  document.getElementById('ticker-input').value = '';
+  document.getElementById('result-table').style.display = 'none';
+  document.getElementById('result-body').innerHTML = '';
+  document.getElementById('summary-cards').style.display = 'none';
+  document.getElementById('empty-state').style.display = 'block';
+  clearError();
+  setStatus('');
+  setSourceBadge(null);
+  _currentSource = null;
+}
+
+function setSourceBadge(source) {
+  const el = document.getElementById('source-badge');
+  if (!source) { el.style.display = 'none'; return; }
+  el.style.display = 'inline-flex';
+  el.className = 'source-badge ' + (source === 'UMA IDX' ? 'uma' : 'seed');
+  el.textContent = source === 'UMA IDX' ? '⚠ UMA IDX' : '📋 Seed List';
+  _currentSource = source;
 }
 
 async function runScreen() {
@@ -166,41 +208,77 @@ async function runScreen() {
 }
 
 async function loadUMA() {
+  const btn = document.getElementById('btn-uma');
+  btn.disabled = true;
   setStatus('<span class="spinner"></span>Loading UMA list…');
   clearError();
   try {
     const resp = await fetch('/anomaly/api/uma');
     const data = await resp.json();
-    if (!resp.ok) { setError(data.error || 'Failed'); return; }
-    if (data.uma && data.uma.length) {
-      const el = document.getElementById('ticker-input');
-      el.value = data.uma.map(e => e.ticker).join('\n');
-      setStatus('Loaded ' + data.uma.length + ' UMA tickers.');
+    if (data.error && !data.uma?.length) {
+      setError('UMA fetch failed: ' + data.error);
+      return;
+    }
+    const tickers = (data.uma || []).map(e => e.ticker);
+    if (tickers.length) {
+      document.getElementById('ticker-input').value = tickers.join('\n');
+      setStatus('Loaded ' + tickers.length + ' UMA ticker(s).');
+      setSourceBadge('UMA IDX');
     } else {
-      setStatus('No UMA entries found.');
+      setStatus('No UMA entries found — IDX page may require JS rendering.');
+      if (data.error) setError(data.error);
     }
   } catch(e) {
     setError('Network error: ' + e.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function loadSeed() {
+  const btn = document.getElementById('btn-seed');
+  btn.disabled = true;
+  setStatus('<span class="spinner"></span>Loading seed list…');
+  clearError();
+  try {
+    const resp = await fetch('/anomaly/api/seed');
+    const data = await resp.json();
+    if (data.error && !data.tickers?.length) {
+      setError('Seed load failed: ' + data.error);
+      return;
+    }
+    const tickers = data.tickers || [];
+    if (tickers.length) {
+      document.getElementById('ticker-input').value = tickers.join('\n');
+      setStatus('Loaded ' + tickers.length + ' seed ticker(s).');
+      setSourceBadge('Seed List');
+    }
+  } catch(e) {
+    setError('Network error: ' + e.message);
+  } finally {
+    btn.disabled = false;
   }
 }
 
 function renderResults(results, runAt) {
   const alerts = results.filter(r => r.alert);
-  const umas = results.filter(r => r.is_uma);
+  const umas   = results.filter(r => r.is_uma);
   const maxScore = results.reduce((m, r) => Math.max(m, r.score || 0), 0);
 
-  // Summary cards
   const sc = document.getElementById('summary-cards');
   sc.style.display = 'grid';
+  const srcHtml = _currentSource
+    ? `<div class="stat"><div class="stat-label">Source</div><div class="stat-value" style="font-size:13px;color:${_currentSource==='UMA IDX'?'#e91e8c':'#26a69a'}">${_currentSource}</div></div>`
+    : '';
   sc.innerHTML = `
     <div class="stat"><div class="stat-label">Screened</div><div class="stat-value">${results.length}</div></div>
-    <div class="stat"><div class="stat-label">Alerts</div><div class="stat-value${alerts.length ? ' alert' : ''}">${alerts.length}</div></div>
-    <div class="stat"><div class="stat-label">UMA Flagged</div><div class="stat-value${umas.length ? ' alert' : ''}">${umas.length}</div></div>
-    <div class="stat"><div class="stat-label">Max Score</div><div class="stat-value${maxScore >= 70 ? ' alert' : ''}">${maxScore.toFixed(1)}</div></div>
+    <div class="stat"><div class="stat-label">Alerts</div><div class="stat-value${alerts.length?' alert':''}">${alerts.length}</div></div>
+    <div class="stat"><div class="stat-label">UMA Flagged</div><div class="stat-value${umas.length?' alert':''}">${umas.length}</div></div>
+    <div class="stat"><div class="stat-label">Max Score</div><div class="stat-value${maxScore>=70?' alert':''}">${maxScore.toFixed(1)}</div></div>
+    ${srcHtml}
     <div class="stat" style="grid-column:span 2"><div class="stat-label">Run At</div><div class="stat-value" style="font-size:13px;color:#aaa">${runAt}</div></div>
   `;
 
-  // Table
   const tbody = document.getElementById('result-body');
   tbody.innerHTML = '';
   results.forEach(r => {
@@ -213,7 +291,9 @@ function renderResults(results, runAt) {
     const fillClass = sev === 'critical' || sev === 'high' ? sev : (sev === 'medium' ? 'medium' : '');
     const rules = (r.rules_triggered || []).map(n => `<span class="tag">${n}</span>`).join('');
     const umaTag = r.is_uma ? '<span class="badge badge-uma">UMA</span>' : '—';
-    const chg = r.change_pct != null ? `<span style="color:${r.change_pct >= 0 ? '#26a69a' : '#ef5350'}">${r.change_pct > 0 ? '+' : ''}${r.change_pct}%</span>` : '—';
+    const chg = r.change_pct != null
+      ? `<span style="color:${r.change_pct>=0?'#26a69a':'#ef5350'}">${r.change_pct>0?'+':''}${r.change_pct}%</span>`
+      : '—';
     tbody.innerHTML += `
       <tr>
         <td><strong>${r.ticker}</strong></td>
@@ -226,13 +306,13 @@ function renderResults(results, runAt) {
           </div>
         </td>
         <td><span class="badge badge-${sev}">${sev}</span></td>
-        <td>${r.price != null ? r.price.toLocaleString() : '—'}</td>
+        <td>${r.price!=null?r.price.toLocaleString():'—'}</td>
         <td>${chg}</td>
-        <td>${r.vol_ratio != null ? r.vol_ratio + 'x' : '—'}</td>
-        <td>${r.z_score != null ? r.z_score : '—'}</td>
-        <td>${r.pbv != null ? r.pbv : '—'}</td>
-        <td>${r.pbv_jump != null ? r.pbv_jump + 'x' : '—'}</td>
-        <td>${rules || '—'}</td>
+        <td>${r.vol_ratio!=null?r.vol_ratio+'x':'—'}</td>
+        <td>${r.z_score!=null?r.z_score:'—'}</td>
+        <td>${r.pbv!=null?r.pbv:'—'}</td>
+        <td>${r.pbv_jump!=null?r.pbv_jump+'x':'—'}</td>
+        <td>${rules||'—'}</td>
         <td>${umaTag}</td>
         <td>
           <a class="ext" href="${r.links?.idx||'#'}" target="_blank">IDX</a> ·
@@ -246,8 +326,8 @@ function renderResults(results, runAt) {
 }
 
 function setStatus(html) { document.getElementById('status').innerHTML = html; }
-function setError(msg) { const el = document.getElementById('error'); el.textContent = msg; el.style.display = 'block'; }
-function clearError() { document.getElementById('error').style.display = 'none'; }
+function setError(msg)   { const el = document.getElementById('error'); el.textContent = msg; el.style.display = 'block'; }
+function clearError()    { document.getElementById('error').style.display = 'none'; }
 </script>
 </body>
 </html>

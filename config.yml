@@ -30,3 +30,13 @@ scoring:
 alerts:
   channel: console         # console | slack | teams | email
   alerts_dir: data/alerts
+
+uma:
+  url: https://www.idx.id/en/news/unusual-market-activity-uma/
+  max_count: 20
+  cache_ttl_hours: 24
+  cache_file: data/uma_cache.json
+
+seed:
+  max_count: 20
+  file: watchlists/seed_list.json

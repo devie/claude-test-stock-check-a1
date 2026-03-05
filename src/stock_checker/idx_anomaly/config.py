@@ -57,6 +57,18 @@ class AlertsConfig(BaseModel):
     alerts_dir: str = "data/alerts"
 
 
+class UMAConfig(BaseModel):
+    url: str = "https://www.idx.id/en/news/unusual-market-activity-uma/"
+    max_count: int = 20
+    cache_ttl_hours: int = 24
+    cache_file: str = "data/uma_cache.json"
+
+
+class SeedConfig(BaseModel):
+    max_count: int = 20
+    file: str = "watchlists/seed_list.json"
+
+
 # ── Root settings ─────────────────────────────────────────────────────────────
 
 class Settings(BaseSettings):
@@ -86,6 +98,8 @@ class Settings(BaseSettings):
     scoring: ScoringConfig = Field(default_factory=ScoringConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
     alerts_cfg: AlertsConfig = Field(default_factory=AlertsConfig)
+    uma_cfg: UMAConfig = Field(default_factory=UMAConfig)
+    seed_cfg: SeedConfig = Field(default_factory=SeedConfig)
 
 
 def load_settings(config_path: str = "config.yml") -> Settings:
@@ -116,4 +130,8 @@ def load_settings(config_path: str = "config.yml") -> Settings:
             overrides["storage"] = StorageConfig(**yml["storage"])
         if "alerts" in yml:
             overrides["alerts_cfg"] = AlertsConfig(**yml["alerts"])
+        if "uma" in yml:
+            overrides["uma_cfg"] = UMAConfig(**yml["uma"])
+        if "seed" in yml:
+            overrides["seed_cfg"] = SeedConfig(**yml["seed"])
     return Settings(**overrides)

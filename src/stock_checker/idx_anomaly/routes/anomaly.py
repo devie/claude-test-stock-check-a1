@@ -1,9 +1,11 @@
 """Flask blueprint — /anomaly/* routes."""
 from __future__ import annotations
 
+import json
 import os
 import threading
 from datetime import datetime, timezone
+from pathlib import Path
 
 from cachetools import TTLCache
 from flask import Blueprint, jsonify, render_template, request
@@ -27,7 +29,7 @@ bp = Blueprint(
 logger = get_logger(__name__)
 _settings = None
 
-# UMA cache: 1-hour TTL, shared across requests
+# In-process UMA ticker set cache (separate from file cache in uma_idx)
 _uma_cache: TTLCache = TTLCache(maxsize=2, ttl=3600)
 _uma_lock = threading.Lock()
 
@@ -40,7 +42,6 @@ def _cfg():
 
 
 def _make_price_prov(cfg):
-    """Return configured price provider (falls back to yfinance internally)."""
     if cfg.provider_price == "invezgo":
         from ..providers.price_invezgo import InvezgoProvider
         return InvezgoProvider(cfg.invezgo_api_key)
@@ -51,13 +52,22 @@ def _make_price_prov(cfg):
     return OHLCDevProvider(cfg.ohlcdev_api_key)
 
 
+def _make_scraper(cfg) -> IDXUMAScraper:
+    u = cfg.uma_cfg
+    return IDXUMAScraper(
+        url=u.url,
+        max_count=u.max_count,
+        cache_file=u.cache_file,
+        cache_ttl_hours=u.cache_ttl_hours,
+    )
+
+
 def _fetch_uma_cached() -> set[str]:
-    """Return UMA ticker set, cached for 1 hour."""
     with _uma_lock:
         if "tickers" in _uma_cache:
             return _uma_cache["tickers"]
     try:
-        entries = IDXUMAScraper().fetch()
+        entries = _make_scraper(_cfg()).fetch()
         tickers = {e.ticker for e in entries}
     except Exception as exc:
         logger.warning("UMA fetch failed: %s", exc)
@@ -65,6 +75,18 @@ def _fetch_uma_cached() -> set[str]:
     with _uma_lock:
         _uma_cache["tickers"] = tickers
     return tickers
+
+
+def _save_uma_watchlist(entries: list, cfg) -> None:
+    """Persist UMA ticker list to watchlists/uma_latest.json."""
+    p = Path("watchlists/uma_latest.json")
+    p.parent.mkdir(parents=True, exist_ok=True)
+    data = {
+        "source": "UMA IDX",
+        "updated": datetime.now(timezone.utc).isoformat(),
+        "tickers": [e.ticker for e in entries][: cfg.uma_cfg.max_count],
+    }
+    p.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
 # ── pages ─────────────────────────────────────────────────────────────────────
@@ -84,7 +106,6 @@ def screen():
         return jsonify({"error": "tickers array required"}), 400
 
     tickers = [t.strip().upper() for t in raw_tickers if str(t).strip()][:50]
-    # Ensure IDX .JK suffix for tickers without an exchange suffix
     tickers = [f"{t}.JK" if "." not in t else t for t in tickers if t]
 
     cfg = _cfg()
@@ -154,13 +175,23 @@ def list_alerts():
 
 @bp.route("/api/uma")
 def uma_list():
-    """Return cached UMA list; forces refresh if ?refresh=1."""
+    """Return UMA ticker list (cached 24h in file); ?refresh=1 forces re-fetch."""
+    cfg = _cfg()
     if request.args.get("refresh") == "1":
         with _uma_lock:
             _uma_cache.clear()
+        # Also bust file cache by removing it
+        try:
+            Path(cfg.uma_cfg.cache_file).unlink(missing_ok=True)
+        except Exception:
+            pass
+
     try:
-        entries = IDXUMAScraper().fetch()
+        entries = _make_scraper(cfg).fetch()
+        if entries:
+            _save_uma_watchlist(entries, cfg)
         return jsonify({
+            "source": "UMA IDX",
             "uma": [
                 {"ticker": e.ticker, "date": e.date_listed, "reason": e.reason}
                 for e in entries
@@ -168,4 +199,35 @@ def uma_list():
             "count": len(entries),
         })
     except Exception as exc:
-        return jsonify({"error": str(exc), "uma": []}), 200  # 200 so UI handles gracefully
+        logger.error("uma_list error: %s", exc)
+        return jsonify({"source": "UMA IDX", "error": str(exc), "uma": [], "count": 0})
+
+
+@bp.route("/api/seed")
+def seed_list():
+    """Return static seed watchlist (20 most-traded IDX stocks by sector)."""
+    cfg = _cfg()
+    seed_path = Path(cfg.seed_cfg.file)
+    try:
+        if seed_path.exists():
+            data = json.loads(seed_path.read_text(encoding="utf-8"))
+            tickers = data.get("tickers", [])[: cfg.seed_cfg.max_count]
+            return jsonify({
+                "source": "Seed List",
+                "tickers": tickers,
+                "count": len(tickers),
+            })
+        # Inline fallback if file missing
+        return jsonify({
+            "source": "Seed List",
+            "tickers": [
+                "BBCA.JK", "BBRI.JK", "BMRI.JK", "BNGA.JK",
+                "TLKM.JK", "ISAT.JK", "ASII.JK", "UNVR.JK",
+                "INDF.JK", "ICBP.JK", "GOTO.JK", "BREN.JK",
+                "ADRO.JK", "PTBA.JK", "ANTM.JK", "TINS.JK",
+                "PGAS.JK", "AALI.JK", "SMRA.JK", "MYOR.JK",
+            ][: cfg.seed_cfg.max_count],
+            "count": cfg.seed_cfg.max_count,
+        })
+    except Exception as exc:
+        return jsonify({"source": "Seed List", "error": str(exc), "tickers": [], "count": 0})

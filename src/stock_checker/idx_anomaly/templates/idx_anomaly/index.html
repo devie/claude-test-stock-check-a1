@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IDX Anomaly Scanner</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0f0f17;color:#e0e0e0;min-height:100vh}
+nav{background:#16161e;border-bottom:1px solid #2a2a3e;padding:14px 24px;display:flex;align-items:center;gap:20px;flex-wrap:wrap}
+.nav-brand{font-size:18px;font-weight:700;color:#26a69a;white-space:nowrap}
+.nav-links a{color:#aaa;text-decoration:none;font-size:14px;padding:6px 12px;border-radius:4px;transition:background .2s}
+.nav-links a:hover,.nav-links a.active{background:#26a69a22;color:#26a69a}
+main{max-width:1300px;margin:0 auto;padding:24px}
+h1{font-size:22px;font-weight:700;color:#e0e0e0;margin-bottom:4px}
+.subtitle{color:#666;font-size:13px;margin-bottom:20px}
+.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start;margin-bottom:20px}
+textarea{background:#1e1e2f;border:1px solid #3a3a5e;color:#e0e0e0;padding:10px 12px;border-radius:6px;font-size:13px;width:360px;height:80px;resize:vertical;outline:none;font-family:monospace}
+textarea:focus{border-color:#26a69a}
+.btn{background:#26a69a;color:#fff;border:none;padding:10px 20px;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;transition:background .2s;white-space:nowrap}
+.btn:hover{background:#2bbd9e}
+.btn:disabled{background:#3a3a5e;cursor:not-allowed}
+.btn-secondary{background:#1e1e2f;border:1px solid #3a3a5e;color:#aaa}
+.btn-secondary:hover{border-color:#26a69a;color:#26a69a;background:#1a2a28}
+.quick-list{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.quick-list span{color:#555;font-size:12px}
+.chip{background:#1e1e2f;border:1px solid #3a3a5e;color:#aaa;padding:3px 9px;border-radius:12px;font-size:12px;cursor:pointer}
+.chip:hover{border-color:#26a69a;color:#26a69a}
+.status-bar{margin-bottom:16px;font-size:13px;color:#777;min-height:20px}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid #3a3a5e;border-top-color:#26a69a;border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle;margin-right:6px}
+@keyframes spin{to{transform:rotate(360deg)}}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{background:#1a1a2a;color:#777;text-transform:uppercase;letter-spacing:.5px;font-size:11px;padding:10px 12px;text-align:left;position:sticky;top:0;z-index:1}
+td{padding:9px 12px;border-bottom:1px solid #1e1e2a;vertical-align:middle}
+tr:hover td{background:#1a1a28}
+.badge{display:inline-block;padding:2px 8px;border-radius:3px;font-size:11px;font-weight:600;text-transform:uppercase}
+.badge-critical{background:#4a1a1a;color:#ef5350}
+.badge-high{background:#3a2010;color:#ff7043}
+.badge-medium{background:#2a2510;color:#ffca28}
+.badge-low{background:#1a2a1a;color:#66bb6a}
+.badge-none{background:#1e1e2a;color:#555}
+.badge-uma{background:#4a0a3a;color:#e91e8c}
+.score-bar{display:inline-flex;align-items:center;gap:6px}
+.score-fill{height:6px;border-radius:3px;background:#26a69a;transition:width .3s}
+.score-fill.medium{background:#ffca28}
+.score-fill.high{background:#ff7043}
+.score-fill.critical{background:#ef5350}
+.tag{display:inline-block;background:#1e1e2f;border:1px solid #3a3a5e;color:#aaa;padding:1px 6px;border-radius:3px;font-size:11px;margin:1px}
+a.ext{color:#26a69a;text-decoration:none;font-size:12px}
+a.ext:hover{text-decoration:underline}
+.empty{text-align:center;padding:60px;color:#444}
+.card-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px}
+.stat{background:#16161e;border:1px solid #2a2a3e;border-radius:6px;padding:14px 16px}
+.stat-label{color:#666;font-size:11px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
+.stat-value{font-size:20px;font-weight:700;color:#e0e0e0}
+.stat-value.alert{color:#ef5350}
+.error-msg{background:#2d1b1b;border:1px solid #ef5350;color:#ef5350;padding:10px 14px;border-radius:6px;margin-bottom:14px;font-size:13px}
+#table-wrap{overflow-x:auto}
+</style>
+</head>
+<body>
+<nav>
+  <div class="nav-brand"><a href="/alpha/" style="color:inherit;text-decoration:none">Stock Alpha</a></div>
+  <div class="nav-links">
+    <a href="/alpha/">Dashboard</a>
+    <a href="/alpha/#compare">Compare</a>
+    <a href="/alpha/#recommendations">Daily Recs</a>
+    <a href="/anomaly/" class="active">Anomaly Scanner</a>
+  </div>
+</nav>
+
+<main>
+  <h1>IDX Anomaly Scanner</h1>
+  <p class="subtitle">Detects unusual price spikes, volume anomalies, PBV jumps, and UMA-listed tickers.</p>
+
+  <div class="toolbar">
+    <div>
+      <div style="color:#777;font-size:12px;margin-bottom:4px">Tickers (one per line or comma-separated)</div>
+      <textarea id="ticker-input" placeholder="BBCA.JK&#10;TLKM.JK&#10;BREN.JK"></textarea>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px;padding-top:20px">
+      <button class="btn" id="btn-screen" onclick="runScreen()">Run Screen</button>
+      <button class="btn btn-secondary" onclick="loadUMA()">Load UMA List</button>
+    </div>
+    <div style="padding-top:20px">
+      <div class="quick-list">
+        <span>Quick:</span>
+        <span class="chip" onclick="addTicker('BBCA.JK')">BBCA.JK</span>
+        <span class="chip" onclick="addTicker('TLKM.JK')">TLKM.JK</span>
+        <span class="chip" onclick="addTicker('BREN.JK')">BREN.JK</span>
+        <span class="chip" onclick="addTicker('GOTO.JK')">GOTO.JK</span>
+        <span class="chip" onclick="addTicker('BMRI.JK')">BMRI.JK</span>
+        <span class="chip" onclick="addTicker('ASII.JK')">ASII.JK</span>
+        <span class="chip" onclick="addTicker('UNVR.JK')">UNVR.JK</span>
+        <span class="chip" onclick="addTicker('ISAT.JK')">ISAT.JK</span>
+      </div>
+    </div>
+  </div>
+
+  <div id="error" class="error-msg" style="display:none"></div>
+  <div class="status-bar" id="status"></div>
+
+  <div id="summary-cards" class="card-summary" style="display:none"></div>
+
+  <div id="table-wrap">
+    <div class="empty" id="empty-state">Enter tickers above and click <strong>Run Screen</strong></div>
+    <table id="result-table" style="display:none">
+      <thead>
+        <tr>
+          <th>Ticker</th>
+          <th>Score</th>
+          <th>Severity</th>
+          <th>Price</th>
+          <th>Chg %</th>
+          <th>Vol Ratio</th>
+          <th>Z-Score</th>
+          <th>PBV</th>
+          <th>PBV Jump</th>
+          <th>Rules</th>
+          <th>UMA</th>
+          <th>Links</th>
+        </tr>
+      </thead>
+      <tbody id="result-body"></tbody>
+    </table>
+  </div>
+</main>
+
+<script>
+function addTicker(t) {
+  const el = document.getElementById('ticker-input');
+  const cur = el.value.trim();
+  el.value = cur ? cur + '\n' + t : t;
+}
+
+function parseTickers() {
+  return document.getElementById('ticker-input').value
+    .split(/[\n,;]+/)
+    .map(t => t.trim().toUpperCase())
+    .filter(t => t.length >= 3);
+}
+
+async function runScreen() {
+  const tickers = parseTickers();
+  if (!tickers.length) { setError('Enter at least one ticker.'); return; }
+  const btn = document.getElementById('btn-screen');
+  btn.disabled = true;
+  setStatus('<span class="spinner"></span>Screening ' + tickers.length + ' ticker(s)…');
+  clearError();
+
+  try {
+    const resp = await fetch('/anomaly/api/screen', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({tickers}),
+    });
+    const data = await resp.json();
+    if (!resp.ok) { setError(data.error || 'Screen failed'); return; }
+    renderResults(data.results, data.run_at);
+  } catch(e) {
+    setError('Network error: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    setStatus('');
+  }
+}
+
+async function loadUMA() {
+  setStatus('<span class="spinner"></span>Loading UMA list…');
+  clearError();
+  try {
+    const resp = await fetch('/anomaly/api/uma');
+    const data = await resp.json();
+    if (!resp.ok) { setError(data.error || 'Failed'); return; }
+    if (data.uma && data.uma.length) {
+      const el = document.getElementById('ticker-input');
+      el.value = data.uma.map(e => e.ticker).join('\n');
+      setStatus('Loaded ' + data.uma.length + ' UMA tickers.');
+    } else {
+      setStatus('No UMA entries found.');
+    }
+  } catch(e) {
+    setError('Network error: ' + e.message);
+  }
+}
+
+function renderResults(results, runAt) {
+  const alerts = results.filter(r => r.alert);
+  const umas = results.filter(r => r.is_uma);
+  const maxScore = results.reduce((m, r) => Math.max(m, r.score || 0), 0);
+
+  // Summary cards
+  const sc = document.getElementById('summary-cards');
+  sc.style.display = 'grid';
+  sc.innerHTML = `
+    <div class="stat"><div class="stat-label">Screened</div><div class="stat-value">${results.length}</div></div>
+    <div class="stat"><div class="stat-label">Alerts</div><div class="stat-value${alerts.length ? ' alert' : ''}">${alerts.length}</div></div>
+    <div class="stat"><div class="stat-label">UMA Flagged</div><div class="stat-value${umas.length ? ' alert' : ''}">${umas.length}</div></div>
+    <div class="stat"><div class="stat-label">Max Score</div><div class="stat-value${maxScore >= 70 ? ' alert' : ''}">${maxScore.toFixed(1)}</div></div>
+    <div class="stat" style="grid-column:span 2"><div class="stat-label">Run At</div><div class="stat-value" style="font-size:13px;color:#aaa">${runAt}</div></div>
+  `;
+
+  // Table
+  const tbody = document.getElementById('result-body');
+  tbody.innerHTML = '';
+  results.forEach(r => {
+    if (r.error) {
+      tbody.innerHTML += `<tr><td>${r.ticker}</td><td colspan="11" style="color:#ef5350">${r.error}</td></tr>`;
+      return;
+    }
+    const sev = r.severity || 'none';
+    const scoreW = Math.min(100, r.score || 0);
+    const fillClass = sev === 'critical' || sev === 'high' ? sev : (sev === 'medium' ? 'medium' : '');
+    const rules = (r.rules_triggered || []).map(n => `<span class="tag">${n}</span>`).join('');
+    const umaTag = r.is_uma ? '<span class="badge badge-uma">UMA</span>' : '—';
+    const chg = r.change_pct != null ? `<span style="color:${r.change_pct >= 0 ? '#26a69a' : '#ef5350'}">${r.change_pct > 0 ? '+' : ''}${r.change_pct}%</span>` : '—';
+    tbody.innerHTML += `
+      <tr>
+        <td><strong>${r.ticker}</strong></td>
+        <td>
+          <div class="score-bar">
+            <span style="min-width:36px;font-weight:600;color:${scoreW>=70?'#ef5350':scoreW>=40?'#ffca28':'#aaa'}">${r.score}</span>
+            <div style="width:60px;background:#1e1e2a;border-radius:3px;overflow:hidden">
+              <div class="score-fill ${fillClass}" style="width:${scoreW}%"></div>
+            </div>
+          </div>
+        </td>
+        <td><span class="badge badge-${sev}">${sev}</span></td>
+        <td>${r.price != null ? r.price.toLocaleString() : '—'}</td>
+        <td>${chg}</td>
+        <td>${r.vol_ratio != null ? r.vol_ratio + 'x' : '—'}</td>
+        <td>${r.z_score != null ? r.z_score : '—'}</td>
+        <td>${r.pbv != null ? r.pbv : '—'}</td>
+        <td>${r.pbv_jump != null ? r.pbv_jump + 'x' : '—'}</td>
+        <td>${rules || '—'}</td>
+        <td>${umaTag}</td>
+        <td>
+          <a class="ext" href="${r.links?.idx||'#'}" target="_blank">IDX</a> ·
+          <a class="ext" href="${r.links?.chart||'#'}" target="_blank">Chart</a>
+        </td>
+      </tr>`;
+  });
+
+  document.getElementById('empty-state').style.display = 'none';
+  document.getElementById('result-table').style.display = 'table';
+}
+
+function setStatus(html) { document.getElementById('status').innerHTML = html; }
+function setError(msg) { const el = document.getElementById('error'); el.textContent = msg; el.style.display = 'block'; }
+function clearError() { document.getElementById('error').style.display = 'none'; }
+</script>
+</body>
+</html>

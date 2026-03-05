@@ -20,6 +20,7 @@ import secrets
 from stock_checker.fetcher import fetch_stock
 from stock_checker.indicators import calc_sma, calc_rsi, get_summary, format_number
 from stock_checker.alpha import init_alpha
+from stock_checker.idx_anomaly import init_idx_anomaly
 
 app = Flask(
     __name__,
@@ -65,6 +66,9 @@ VALID_PERIODS = ["1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"]
 
 # Initialize Alpha module
 init_alpha(app)
+
+# Initialize IDX Anomaly Scanner module
+init_idx_anomaly(app)
 
 
 def _build_chart_data(df, ticker):

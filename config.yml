@@ -1,0 +1,32 @@
+providers:
+  price: ohlcdev           # ohlcdev | invezgo
+  fundamentals: finnhub
+
+storage:
+  backend: sqlite          # sqlite | parquet
+  sqlite_path: data/anomaly.db
+  parquet_dir: data/parquet
+
+rules:
+  price_spike:
+    min_abs_return: 0.08   # 8% absolute threshold
+    sigma_multiplier: 3.0  # |ret_1d| > 3σ also triggers
+    vol_vs_prev_multiplier: 5.0
+  volume_spike:
+    ratio_threshold: 6.0   # today_vol / median_20d ≥ 6x
+  pbv_jump:
+    jump_multiplier: 2.0   # pbv_today / median_pbv_60d ≥ 2x
+    high_pbv_threshold: 10.0
+    high_pbv_delta_pct: 0.50  # +50% delta when PBV ≥ 10
+
+scoring:
+  weights:
+    price: 40
+    volume: 30
+    pbv: 20
+    uma: 10
+  alert_threshold: 70      # score ≥ 70 → alert
+
+alerts:
+  channel: console         # console | slack | teams | email
+  alerts_dir: data/alerts

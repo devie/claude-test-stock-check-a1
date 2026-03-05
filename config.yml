@@ -1,6 +1,6 @@
 providers:
-  price: ohlcdev           # ohlcdev | invezgo
-  fundamentals: finnhub
+  price: yfinance          # yfinance (zero-config) | ohlcdev | invezgo
+  fundamentals: finnhub    # finnhub (auto-falls-back to yfinance if no key)
 
 storage:
   backend: sqlite          # sqlite | parquet

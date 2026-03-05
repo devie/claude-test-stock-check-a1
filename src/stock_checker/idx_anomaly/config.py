@@ -79,7 +79,8 @@ class Settings(BaseSettings):
     alert_to_email: str = ""
 
     # Config (overridden from config.yml)
-    provider_price: str = "ohlcdev"
+    # "yfinance" works with no API key and is the zero-config default
+    provider_price: str = "yfinance"
     provider_fundamentals: str = "finnhub"
     rules: RulesConfig = Field(default_factory=RulesConfig)
     scoring: ScoringConfig = Field(default_factory=ScoringConfig)

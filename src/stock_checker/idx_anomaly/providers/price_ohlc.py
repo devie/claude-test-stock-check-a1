@@ -1,9 +1,10 @@
-"""OHLC.dev price provider via RapidAPI."""
+"""OHLC.dev price provider via RapidAPI, with yfinance fallback."""
 from __future__ import annotations
 
 from datetime import datetime, timedelta
 
 import pandas as pd
+from requests.exceptions import HTTPError
 
 from ..utils.http import get_json
 from ..utils.logging import get_logger
@@ -16,26 +17,48 @@ _HOST = "ohlc.p.rapidapi.com"
 
 
 class OHLCDevProvider(PriceDataProvider):
+    """OHLC.dev via RapidAPI. Falls back to yfinance on 404/403."""
+
     def __init__(self, api_key: str) -> None:
+        self._api_key = api_key
         self._headers = {
             "x-rapidapi-key": api_key,
             "x-rapidapi-host": _HOST,
         }
 
     def fetch(self, ticker: str, days: int = 90) -> OHLCV:
+        if not self._api_key:
+            logger.info("ohlcdev: no API key, using yfinance for %s", ticker)
+            return _yf_fallback(ticker, days)
+
         end = datetime.utcnow().date()
         start = end - timedelta(days=days)
         params = {
-            "symbol": ticker,
+            "symbol": ticker,        # IDX tickers: BBCA.JK
             "from": str(start),
             "to": str(end),
             "interval": "1d",
         }
-        data = get_json(f"{_BASE}/history", params=params, headers=self._headers)
-        rows = data.get("data", data) if isinstance(data, dict) else data
-        df = _parse_rows(rows)
-        logger.info("ohlcdev: %s rows for %s", len(df), ticker)
-        return OHLCV(ticker=ticker, df=df)
+        try:
+            data = get_json(f"{_BASE}/history", params=params, headers=self._headers)
+            rows = data.get("data", data) if isinstance(data, dict) else data
+            df = _parse_rows(rows)
+            if df.empty:
+                raise ValueError("ohlcdev returned empty data")
+            logger.info("ohlcdev: %d rows for %s", len(df), ticker)
+            return OHLCV(ticker=ticker, df=df)
+        except (HTTPError, ValueError) as exc:
+            status = getattr(getattr(exc, "response", None), "status_code", None)
+            logger.warning(
+                "ohlcdev failed for %s (HTTP %s: %s) — falling back to yfinance",
+                ticker, status or "?", exc,
+            )
+            return _yf_fallback(ticker, days)
+
+
+def _yf_fallback(ticker: str, days: int) -> OHLCV:
+    from .price_yfinance import YFinanceProvider
+    return YFinanceProvider().fetch(ticker, days)
 
 
 def _parse_rows(rows: list[dict]) -> pd.DataFrame:

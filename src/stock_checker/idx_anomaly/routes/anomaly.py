@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime
+import threading
+from datetime import datetime, timezone
 
+from cachetools import TTLCache
 from flask import Blueprint, jsonify, render_template, request
 
 from ..config import load_settings
@@ -25,6 +27,10 @@ bp = Blueprint(
 logger = get_logger(__name__)
 _settings = None
 
+# UMA cache: 1-hour TTL, shared across requests
+_uma_cache: TTLCache = TTLCache(maxsize=2, ttl=3600)
+_uma_lock = threading.Lock()
+
 
 def _cfg():
     global _settings
@@ -33,12 +39,32 @@ def _cfg():
     return _settings
 
 
-def _price_prov(cfg):
+def _make_price_prov(cfg):
+    """Return configured price provider (falls back to yfinance internally)."""
     if cfg.provider_price == "invezgo":
         from ..providers.price_invezgo import InvezgoProvider
         return InvezgoProvider(cfg.invezgo_api_key)
+    if cfg.provider_price == "yfinance":
+        from ..providers.price_yfinance import YFinanceProvider
+        return YFinanceProvider()
     from ..providers.price_ohlc import OHLCDevProvider
     return OHLCDevProvider(cfg.ohlcdev_api_key)
+
+
+def _fetch_uma_cached() -> set[str]:
+    """Return UMA ticker set, cached for 1 hour."""
+    with _uma_lock:
+        if "tickers" in _uma_cache:
+            return _uma_cache["tickers"]
+    try:
+        entries = IDXUMAScraper().fetch()
+        tickers = {e.ticker for e in entries}
+    except Exception as exc:
+        logger.warning("UMA fetch failed: %s", exc)
+        tickers = set()
+    with _uma_lock:
+        _uma_cache["tickers"] = tickers
+    return tickers
 
 
 # ── pages ─────────────────────────────────────────────────────────────────────
@@ -58,18 +84,14 @@ def screen():
         return jsonify({"error": "tickers array required"}), 400
 
     tickers = [t.strip().upper() for t in raw_tickers if str(t).strip()][:50]
-    tickers = [f"{t}.JK" if "." not in t else t for t in tickers]
+    # Ensure IDX .JK suffix for tickers without an exchange suffix
+    tickers = [f"{t}.JK" if "." not in t else t for t in tickers if t]
 
     cfg = _cfg()
     from ..providers.fundamentals_finnhub import FinnhubProvider
-    price_prov = _price_prov(cfg)
+    price_prov = _make_price_prov(cfg)
     fund_prov = FinnhubProvider(cfg.finnhub_api_key)
-
-    try:
-        uma_tickers = {e.ticker for e in IDXUMAScraper().fetch()}
-    except Exception as exc:
-        logger.warning("UMA fetch failed: %s", exc)
-        uma_tickers = set()
+    uma_tickers = _fetch_uma_cached()
 
     results = []
     for ticker in tickers:
@@ -94,8 +116,10 @@ def screen():
                 "pbv_jump": round(metrics.pbv_jump, 2) if metrics.pbv_jump else None,
                 "is_uma": is_uma,
                 "links": {
-                    "idx": f"https://www.idx.co.id/en/listed-companies/company-profiles/"
-                           f"?kodeEmiten={ticker.replace('.JK','')}",
+                    "idx": (
+                        "https://www.idx.co.id/en/listed-companies/company-profiles/"
+                        f"?kodeEmiten={ticker.replace('.JK','')}"
+                    ),
                     "chart": f"https://finance.yahoo.com/chart/{ticker}",
                 },
             })
@@ -104,7 +128,10 @@ def screen():
             results.append({"ticker": ticker, "error": str(exc)})
 
     results.sort(key=lambda x: x.get("score", 0), reverse=True)
-    return jsonify({"results": results, "run_at": datetime.utcnow().isoformat()})
+    return jsonify({
+        "results": results,
+        "run_at": datetime.now(timezone.utc).isoformat(),
+    })
 
 
 @bp.route("/api/alerts")
@@ -127,9 +154,18 @@ def list_alerts():
 
 @bp.route("/api/uma")
 def uma_list():
+    """Return cached UMA list; forces refresh if ?refresh=1."""
+    if request.args.get("refresh") == "1":
+        with _uma_lock:
+            _uma_cache.clear()
     try:
         entries = IDXUMAScraper().fetch()
-        return jsonify({"uma": [{"ticker": e.ticker, "date": e.date_listed, "reason": e.reason}
-                                for e in entries]})
+        return jsonify({
+            "uma": [
+                {"ticker": e.ticker, "date": e.date_listed, "reason": e.reason}
+                for e in entries
+            ],
+            "count": len(entries),
+        })
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        return jsonify({"error": str(exc), "uma": []}), 200  # 200 so UI handles gracefully

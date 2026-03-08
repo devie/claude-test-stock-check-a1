@@ -1199,32 +1199,67 @@ const App = {
                 ? Math.max(0, 100 - insiderPct - allInstTotal)
                 : null;
 
-            // ── Build full node list for mind map ──────────────────────────────
-            const sigMapped = [];
-            if (insiderPct != null && !isNaN(insiderPct) && insiderPct > 0) {
-                sigMapped.push({ holder: 'Insider / Promoter', shares: null, pct: insiderPct, nodeType: 'insider' });
+            // ── Classify significant holders → insider vs institution ──────────
+            // Heuristic: the top institutional holders that cumulatively reach 80% of
+            // insiderPct are the promoter/insider block (e.g. government stake for SOEs,
+            // controlling family holding co. for private companies). The rest are institutions.
+            let insiderChildren     = [];
+            let institutionChildren = [];
+            if (insiderPct != null && !isNaN(insiderPct) && insiderPct > 0 && significant.length > 0) {
+                const TARGET = insiderPct * 0.80;
+                let cumulative = 0;
+                const assignedSet = new Set();
+                for (const h of significant) {               // already sorted desc by pct_pct
+                    if (cumulative < TARGET) {
+                        insiderChildren.push({ holder: h.holder, shares: h.shares, pct: h.pct_pct, nodeType: 'insider', children: [] });
+                        assignedSet.add(h.holder);
+                        cumulative += h.pct_pct;
+                    }
+                }
+                // Remaining insider fraction (director micro-stakes not in institutional_holders)
+                const remainInsider = insiderPct - cumulative;
+                if (remainInsider >= 0.5) {
+                    insiderChildren.push({ holder: 'Other Insiders', shares: null, pct: remainInsider, nodeType: 'insider', isOthers: true, children: [] });
+                }
+                institutionChildren = significant
+                    .filter(h => !assignedSet.has(h.holder))
+                    .map(h => ({ holder: h.holder, shares: h.shares, pct: h.pct_pct, nodeType: 'institution', children: [] }));
+            } else {
+                institutionChildren = significant.map(h => ({
+                    holder: h.holder, shares: h.shares, pct: h.pct_pct, nodeType: 'institution', children: []
+                }));
             }
-            significant.forEach(h => {
-                sigMapped.push({ holder: h.holder, shares: h.shares, pct: h.pct_pct, nodeType: 'institution' });
-            });
+            // Small (<1%) institutional holders go into the institutions group as an "Others" bucket
+            if (othersCount > 0 && othersTotal > 0) {
+                institutionChildren.push({ holder: `Others (${othersCount})`, shares: null, pct: othersTotal, nodeType: 'institution', isOthers: true, children: [] });
+            }
+
+            // ── Build hierarchical ownershipGroups ────────────────────────────
+            const ownershipGroups = [];
+            if (insiderPct != null && !isNaN(insiderPct) && insiderPct > 0) {
+                ownershipGroups.push({ holder: 'Insider / Promoter', pct: insiderPct, shares: null, nodeType: 'insider', color: '#FF9800', children: insiderChildren });
+            }
+            if (institutionChildren.length > 0) {
+                const instGroupPct = institutionChildren.reduce((s, c) => s + (c.pct || 0), 0);
+                ownershipGroups.push({ holder: 'Institutions', pct: instGroupPct, shares: null, nodeType: 'institution', color: '#7c4dff', children: institutionChildren });
+            }
             if (publicFloat != null && publicFloat >= 0.5) {
-                sigMapped.push({ holder: 'Public Float', shares: null, pct: publicFloat, nodeType: 'public' });
+                ownershipGroups.push({ holder: 'Public Float', pct: publicFloat, shares: null, nodeType: 'public', color: '#78909C', children: [] });
             }
 
             // ── Badge stats ────────────────────────────────────────────────────
-            const mindmapNodeCount = sigMapped.length;
-            const mindmapPctShown  = sigMapped.reduce((s, n) => s + n.pct, 0);
-            const showMindmap      = mindmapNodeCount > 0 || othersTotal > 0;
+            const mindmapNodeCount = ownershipGroups.length;
+            const mindmapPctShown  = ownershipGroups.reduce((s, n) => s + n.pct, 0);
+            const showMindmap      = mindmapNodeCount > 0;
 
             const mindmapHtml = showMindmap ? `
                 <div class="card" id="ownership-mindmap-card">
                     <div class="card-title" style="display:flex;align-items:center;flex-wrap:wrap;gap:8px">
                         <span>Ownership Mind Map</span>
-                        <span style="font-size:0.75em;color:var(--text-muted);font-weight:400">(click to expand · drag to pan)</span>
+                        <span style="font-size:0.75em;color:var(--text-muted);font-weight:400">(click layer to drill down · drag to pan)</span>
                         <span style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap">
-                            <span style="background:rgba(33,150,243,0.15);color:#8ab4f8;border:1px solid rgba(33,150,243,0.3);border-radius:12px;padding:2px 9px;font-size:0.72em;font-weight:600">${mindmapNodeCount} nodes</span>
+                            <span style="background:rgba(33,150,243,0.15);color:#8ab4f8;border:1px solid rgba(33,150,243,0.3);border-radius:12px;padding:2px 9px;font-size:0.72em;font-weight:600">${mindmapNodeCount} groups</span>
                             <span style="background:rgba(102,187,106,0.12);color:#66bb6a;border:1px solid rgba(102,187,106,0.25);border-radius:12px;padding:2px 9px;font-size:0.72em;font-weight:600">${mindmapPctShown.toFixed(1)}% shown</span>
-                            ${othersTotal > 0 ? `<span style="background:rgba(154,160,166,0.12);color:#9aa0a6;border:1px solid rgba(154,160,166,0.25);border-radius:12px;padding:2px 9px;font-size:0.72em;font-weight:600">${othersTotal.toFixed(1)}% others</span>` : ''}
                         </span>
                     </div>
                     <div id="ownership-mindmap-container">
@@ -1236,7 +1271,7 @@ const App = {
             el.innerHTML = overviewHtml + officersHtml + holdersHtml + mindmapHtml + subsidiariesHtml + calHtml;
 
             if (showMindmap) {
-                setTimeout(() => renderOwnershipMindMap(ticker, sigMapped, othersTotal, othersCount), 50);
+                setTimeout(() => renderOwnershipMindMap(ticker, ownershipGroups), 50);
             }
         } catch (e) {
             el.innerHTML = `<div class="card"><p style="color:var(--text-muted)">Failed to load company information: ${e.message}</p></div>`;
@@ -3732,37 +3767,23 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 /**
- * Render an interactive radial ownership mind-map on a <canvas>.
+ * Hierarchical ownership mind-map (2-level drill-down).
  *
- * Fixes vs previous version:
- *  - Multi-ring layout: top holders on inner ring, rest outer → no single-ring crowding
- *  - Sqrt radius scale: area ∝ percent (not linear)
- *  - Iterative collision avoidance: 160 passes of pairwise repulsion
- *  - Labels point radially away from center (angle recomputed after layout)
- *  - Labels suppressed for tiny nodes (<14 px radius); tooltip always works
- *  - Drag-to-pan: mousedown+mousemove moves the whole diagram
- *  - Clean resize: full re-layout on container width change
+ * Level 0 — overview: shows ownership groups (Insider/Promoter, Institutions,
+ *   Public Float) as large bubbles. Expandable groups show a ▶ indicator.
+ *   Click a group bubble → drill into its individual holders.
  *
- * @param {string}  ticker       - Central node label (e.g. "ISAT.JK")
- * @param {Array}   significant  - [{holder, shares, pct}] for holders ≥ threshold (ALL shown individually)
- * @param {number}  othersTotal  - Combined % for sub-threshold holders (pre-aggregated by caller)
- * @param {number}  othersCount  - Count of sub-threshold holders
+ * Level 1 — detail: shows the individual holders inside the selected group.
+ *   Center node changes to the group label; click it (or ← Back) to return.
+ *   Click a holder node → zoom-in + rich detail panel below canvas.
+ *
+ * @param {string} ticker          - Central node label (e.g. "TLKM.JK")
+ * @param {Array}  ownershipGroups - [{holder, pct, shares, nodeType, color, children:[...]}]
  */
-function renderOwnershipMindMap(ticker, significant, othersTotal, othersCount) {
+function renderOwnershipMindMap(ticker, ownershipGroups) {
     const canvas = document.getElementById('ownership-mindmap-canvas');
-    if (!canvas) return;
+    if (!canvas || !ownershipGroups.length) return;
     const ctx = canvas.getContext('2d');
-
-    // ── Node list ──────────────────────────────────────────────────────────
-    // Every entry in `significant` is rendered as its own node — no aggregation of ≥threshold holders.
-    const rawNodes = significant.map(h => ({ ...h, isOthers: false }));
-    if (othersTotal > 0) {
-        rawNodes.push({ holder: `<1% Others (${othersCount})`, shares: null, pct: othersTotal, isOthers: true });
-    }
-    if (!rawNodes.length) return;
-
-    // Stable descending sort by pct so layout is deterministic
-    rawNodes.sort((a, b) => b.pct - a.pct || a.holder.localeCompare(b.holder));
 
     const PALETTE = [
         '#8ab4f8', '#ffb74d', '#66bb6a', '#d07bff', '#ef9a9a',
@@ -3773,7 +3794,6 @@ function renderOwnershipMindMap(ticker, significant, othersTotal, othersCount) {
     // ── DPR-aware canvas init ──────────────────────────────────────────────
     const dpr = window.devicePixelRatio || 1;
     const CH_FIXED = 460;
-
     function initCanvas() {
         const w = canvas.offsetWidth || 900;
         canvas.width  = w * dpr;
@@ -3782,49 +3802,48 @@ function renderOwnershipMindMap(ticker, significant, othersTotal, othersCount) {
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         return { CW: w, CH: CH_FIXED };
     }
-
     let { CW, CH } = initCanvas();
     let cx = CW / 2, cy = CH / 2;
+    const CENTER_R = 38;
 
-    // ── Sqrt radius scale: area ∝ percent ─────────────────────────────────
-    const CENTER_R  = 38;
-    const MIN_R     = 14;                           // absolute floor for any node
-    const MIN_SHOWN = 22;                           // floor for named (non-others) nodes
-    const MAX_R     = Math.min(70, CW * 0.07);     // ceiling scales with canvas width
-    const maxPct    = rawNodes[0].pct;              // sorted desc; largest node anchors scale
-
-    // Radius anchored to the largest node only (t=1 → MAX_R, t→0 → MIN_R)
-    // This prevents the smallest node being crushed to MIN_R when the spread is wide.
-    function getR(pct) {
-        const t = Math.sqrt(pct / maxPct);          // 0..1, 1 = largest holder
-        return MIN_R + t * (MAX_R - MIN_R);
+    // ── Build display nodes from raw data ──────────────────────────────────
+    function buildNodes(sourceArr) {
+        if (!sourceArr || !sourceArr.length) return [];
+        const sorted = [...sourceArr].sort((a, b) => b.pct - a.pct || a.holder.localeCompare(b.holder));
+        const maxPct = sorted[0].pct || 0.01;
+        const MIN_R = 14, MIN_SHOWN = 22;
+        const MAX_R = Math.min(70, CW * 0.07);
+        function getR(pct) {
+            return MIN_R + Math.sqrt(pct / maxPct) * (MAX_R - MIN_R);
+        }
+        return sorted.map((n, i) => {
+            const color = n.color
+                || (n.nodeType === 'insider' ? '#FF9800'
+                  : n.nodeType === 'public'  ? '#78909C'
+                  : n.isOthers               ? '#9aa0a6'
+                  : PALETTE[i % PALETTE.length]);
+            return {
+                ...n,
+                r: n.isOthers ? Math.max(getR(n.pct), MIN_R) : Math.max(getR(n.pct), MIN_SHOWN),
+                color,
+                x: 0, y: 0,
+            };
+        });
     }
 
-    // ── Build nodeData ─────────────────────────────────────────────────────
-    const N = rawNodes.length;
-    const nodeData = rawNodes.map((n, i) => ({
-        ...n,
-        // Named nodes always get at least MIN_SHOWN so labels are readable
-        r: n.isOthers
-            ? Math.max(getR(n.pct), MIN_R)
-            : Math.max(getR(n.pct), MIN_SHOWN),
-        color: n.nodeType === 'insider' ? '#FF9800' :   // orange  — insider/promoter
-               n.nodeType === 'public'  ? '#78909C' :   // blue-grey — public float
-               n.isOthers               ? '#9aa0a6' :   // grey      — <threshold bucket
-               PALETTE[i % PALETTE.length],             // palette   — institutions
-        x: 0, y: 0,
-    }));
+    // ── Hierarchical navigation state ──────────────────────────────────────
+    let breadcrumbGroup = null;        // null = level-0 overview; else = active group
+    let currentSource   = ownershipGroups;
+    let currentNodes    = buildNodes(currentSource);
 
-    // ── Multi-ring placement ───────────────────────────────────────────────
-    // Top holders (by pct, already sorted) go on inner ring; smaller ones on outer.
-    // With a single holder everything fits on one ring.
+    // ── Layout helpers ─────────────────────────────────────────────────────
     function placeNodes() {
+        const N = currentNodes.length;
         const innerCount = N <= 4 ? N : Math.min(5, Math.ceil(N * 0.35));
         const outerCount = N - innerCount;
         const innerOrbit = Math.min(CW, CH) * (outerCount > 0 ? 0.21 : 0.28);
         const outerOrbit = Math.min(CW, CH) * 0.40;
-
-        nodeData.forEach((n, i) => {
+        currentNodes.forEach((n, i) => {
             const isInner  = i < innerCount;
             const orbit    = isInner ? innerOrbit : outerOrbit;
             const groupSz  = isInner ? innerCount : outerCount;
@@ -3835,18 +3854,15 @@ function renderOwnershipMindMap(ticker, significant, othersTotal, othersCount) {
         });
     }
 
-    placeNodes();
-
-    // ── Collision avoidance ────────────────────────────────────────────────
-    // Simple pairwise repulsion; also pushes nodes clear of the central node and canvas edges.
     function resolveCollisions(iters) {
+        const N = currentNodes.length;
         const GAP = 9;
         for (let iter = 0; iter < iters; iter++) {
             for (let i = 0; i < N; i++) {
                 for (let j = i + 1; j < N; j++) {
-                    const a = nodeData[i], b = nodeData[j];
+                    const a = currentNodes[i], b = currentNodes[j];
                     const dx = b.x - a.x, dy = b.y - a.y;
-                    const d  = Math.hypot(dx, dy) || 0.001;
+                    const d = Math.hypot(dx, dy) || 0.001;
                     const minD = a.r + b.r + GAP;
                     if (d < minD) {
                         const push = (minD - d) / 2 * 0.75;
@@ -3855,13 +3871,11 @@ function renderOwnershipMindMap(ticker, significant, othersTotal, othersCount) {
                         b.x += nx * push; b.y += ny * push;
                     }
                 }
-                // Keep clear of central node
-                const n = nodeData[i];
+                const n = currentNodes[i];
                 const dcx = n.x - cx, dcy = n.y - cy;
-                const dc   = Math.hypot(dcx, dcy) || 0.001;
+                const dc = Math.hypot(dcx, dcy) || 0.001;
                 const minC = CENTER_R + n.r + GAP;
                 if (dc < minC) { n.x = cx + (dcx / dc) * minC; n.y = cy + (dcy / dc) * minC; }
-                // Keep within canvas bounds
                 const pad = n.r + 4;
                 n.x = Math.max(pad, Math.min(CW - pad, n.x));
                 n.y = Math.max(pad, Math.min(CH - pad, n.y));
@@ -3869,27 +3883,32 @@ function renderOwnershipMindMap(ticker, significant, othersTotal, othersCount) {
         }
     }
 
+    function rebuild() {
+        currentNodes = buildNodes(currentSource);
+        placeNodes();
+        resolveCollisions(160);
+    }
+
+    placeNodes();
     resolveCollisions(160);
 
     // ── Pan + Zoom state ───────────────────────────────────────────────────
-    let panX = 0, panY = 0;
-    let zoomScale = 1;
+    let panX = 0, panY = 0, zoomScale = 1;
     let dragAnchor = null, didDrag = false;
     let activeIdx  = -1;
     let _animFrame = null;
 
-    // Animate smoothly to target zoom + pan (cubic ease-out)
     function animateTo(toZoom, toPanX, toPanY, dur) {
-        dur = dur || 420;
+        dur = dur || 380;
         const startZoom = zoomScale, startPX = panX, startPY = panY;
         const t0 = performance.now();
         if (_animFrame) cancelAnimationFrame(_animFrame);
         function step(t) {
             let p = Math.min((t - t0) / dur, 1);
-            p = 1 - Math.pow(1 - p, 3);          // cubic ease-out
-            zoomScale = startZoom + (toZoom  - startZoom) * p;
-            panX      = startPX   + (toPanX  - startPX)   * p;
-            panY      = startPY   + (toPanY  - startPY)   * p;
+            p = 1 - Math.pow(1 - p, 3);
+            zoomScale = startZoom + (toZoom - startZoom) * p;
+            panX      = startPX   + (toPanX  - startPX)  * p;
+            panY      = startPY   + (toPanY  - startPY)  * p;
             draw();
             if (p < 1) _animFrame = requestAnimationFrame(step);
         }
@@ -3900,16 +3919,14 @@ function renderOwnershipMindMap(ticker, significant, othersTotal, othersCount) {
     function draw() {
         ctx.clearRect(0, 0, CW, CH);
         ctx.save();
-
-        // Zoom centered on canvas center, then apply pan
         ctx.translate(cx + panX, cy + panY);
         ctx.scale(zoomScale, zoomScale);
         ctx.translate(-cx, -cy);
 
         const hasActive = activeIdx >= 0;
 
-        // Spokes (behind nodes)
-        nodeData.forEach((n, i) => {
+        // Spokes
+        currentNodes.forEach((n, i) => {
             const isActive = i === activeIdx;
             ctx.globalAlpha = hasActive && !isActive ? 0.15 : 1;
             ctx.beginPath();
@@ -3922,67 +3939,80 @@ function renderOwnershipMindMap(ticker, significant, othersTotal, othersCount) {
             ctx.setLineDash([]);
         });
 
-        // Central node
+        // Center node — shows ticker (level 0) or group label (level 1)
+        const centerLabel = breadcrumbGroup
+            ? breadcrumbGroup.holder.split('/')[0].trim().slice(0, 12)
+            : (ticker.length > 10 ? ticker.slice(0, 9) + '\u2026' : ticker);
+        const centerColor = breadcrumbGroup ? (breadcrumbGroup.color || '#2196F3') : '#2196F3';
         ctx.globalAlpha = hasActive ? 0.3 : 1;
         ctx.beginPath();
         ctx.arc(cx, cy, CENTER_R, 0, Math.PI * 2);
-        ctx.fillStyle = '#2196F3';
+        ctx.fillStyle = centerColor;
         ctx.fill();
-        ctx.strokeStyle = 'rgba(33,150,243,0.4)';
+        ctx.strokeStyle = centerColor + '66';
         ctx.lineWidth = 3;
         ctx.stroke();
         ctx.fillStyle = '#fff';
-        ctx.font = 'bold 11px Inter, system-ui, sans-serif';
+        ctx.font = 'bold 10px Inter, system-ui, sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(ticker.length > 10 ? ticker.slice(0, 9) + '\u2026' : ticker, cx, cy);
+        ctx.fillText(centerLabel, cx, breadcrumbGroup ? cy - 6 : cy);
+        if (breadcrumbGroup) {
+            ctx.font = '7px Inter, system-ui, sans-serif';
+            ctx.fillStyle = 'rgba(255,255,255,0.6)';
+            ctx.fillText('\u2190 back', cx, cy + 8);
+        }
         ctx.globalAlpha = 1;
 
-        // Holder nodes + labels
-        nodeData.forEach((n, i) => {
-            const isActive = i === activeIdx;
+        // Holder / group nodes
+        currentNodes.forEach((n, i) => {
+            const isActive     = i === activeIdx;
+            const isExpandable = n.children && n.children.length > 0;
             ctx.globalAlpha = hasActive && !isActive ? 0.18 : 1;
 
-            // Circle
+            // Fill circle
             ctx.beginPath();
             ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
             ctx.fillStyle = isActive ? n.color : n.color + 'cc';
             ctx.fill();
+
+            // Border / indicator
             if (isActive) {
-                ctx.strokeStyle = '#fff';
-                ctx.lineWidth = 2.5;
-                ctx.stroke();
-                // Glow ring
+                ctx.strokeStyle = '#fff'; ctx.lineWidth = 2.5; ctx.setLineDash([]); ctx.stroke();
                 ctx.beginPath();
-                ctx.arc(n.x, n.y, n.r + 6, 0, Math.PI * 2);
-                ctx.strokeStyle = n.color + '44';
-                ctx.lineWidth = 4;
-                ctx.stroke();
+                ctx.arc(n.x, n.y, n.r + 5, 0, Math.PI * 2);
+                ctx.strokeStyle = n.color + '44'; ctx.lineWidth = 4; ctx.stroke();
+            } else if (isExpandable) {
+                ctx.strokeStyle = n.color + 'aa'; ctx.lineWidth = 2; ctx.setLineDash([]); ctx.stroke();
+                // ▶ drill-down indicator
+                const sz = Math.max(8, Math.min(12, n.r * 0.28));
+                ctx.fillStyle = '#fff';
+                ctx.font = `bold ${sz}px Inter, system-ui`;
+                ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                ctx.fillText('\u25b6', n.x + n.r * 0.62, n.y + n.r * 0.62);
             }
+            ctx.setLineDash([]);
 
             ctx.globalAlpha = hasActive && !isActive ? 0.18 : 1;
 
-            // Pct label inside circle
+            // Pct inside circle
             if (n.r >= 18) {
-                const pctFont = Math.max(9, Math.min(13, Math.round(n.r * 0.32)));
-                ctx.fillStyle    = '#fff';
-                ctx.font         = `bold ${pctFont}px Inter, system-ui, sans-serif`;
-                ctx.textAlign    = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText(n.pct.toFixed(1) + '%', n.x, n.y + pctFont * 0.38);
+                const pf = Math.max(9, Math.min(13, Math.round(n.r * 0.30)));
+                ctx.fillStyle = '#fff';
+                ctx.font = `bold ${pf}px Inter, system-ui, sans-serif`;
+                ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                ctx.fillText(n.pct.toFixed(1) + '%', n.x, isExpandable ? n.y - pf * 0.3 : n.y + pf * 0.38);
             }
 
             // Name label above circle
             {
                 const maxChars  = Math.max(10, Math.floor(n.r * 0.55));
                 const shortName = n.holder.length > maxChars
-                    ? n.holder.slice(0, maxChars - 1) + '\u2026'
-                    : n.holder;
-                const labelFont = Math.max(9, Math.min(11, Math.round(n.r * 0.26)));
-                ctx.font         = `${labelFont}px Inter, system-ui, sans-serif`;
-                ctx.fillStyle    = isActive ? '#e6e9ef' : '#b0b4c8';
-                ctx.textAlign    = 'center';
-                ctx.textBaseline = 'bottom';
+                    ? n.holder.slice(0, maxChars - 1) + '\u2026' : n.holder;
+                const lf = Math.max(9, Math.min(11, Math.round(n.r * 0.26)));
+                ctx.font = `${lf}px Inter, system-ui, sans-serif`;
+                ctx.fillStyle = isActive ? '#e6e9ef' : '#b0b4c8';
+                ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
                 ctx.fillText(shortName, n.x, n.y - n.r - 4);
             }
             ctx.globalAlpha = 1;
@@ -3993,38 +4023,61 @@ function renderOwnershipMindMap(ticker, significant, othersTotal, othersCount) {
 
     draw();
 
-    // ── Hit test (accounts for pan + zoom) ────────────────────────────────
-    function hitTest(mx, my) {
-        // Inverse of: screen = cx + panX + z*(pos.x - cx)
-        const ax = (mx - cx - panX) / zoomScale + cx;
-        const ay = (my - cy - panY) / zoomScale + cy;
-        for (let i = 0; i < N; i++) {
-            const n = nodeData[i];
-            if ((ax - n.x) ** 2 + (ay - n.y) ** 2 <= n.r ** 2) return i;
-        }
-        return -1;
+    // ── Navigation ─────────────────────────────────────────────────────────
+    function enterGroup(group) {
+        if (!group.children || !group.children.length) return;
+        breadcrumbGroup = group;
+        currentSource   = group.children;
+        panX = 0; panY = 0; zoomScale = 1; activeIdx = -1;
+        if (_animFrame) cancelAnimationFrame(_animFrame);
+        rebuild();
+        draw();
+        showBreadcrumb(group);
     }
 
-    // ── Detail panel ───────────────────────────────────────────────────────
-    const maxPctNode = nodeData.reduce((m, n) => n.pct > m.pct ? n : m, nodeData[0]);
+    function exitGroup() {
+        breadcrumbGroup = null;
+        currentSource   = ownershipGroups;
+        panX = 0; panY = 0; zoomScale = 1; activeIdx = -1;
+        if (_animFrame) cancelAnimationFrame(_animFrame);
+        rebuild();
+        draw();
+        hideDetailPanel();
+    }
+
+    function showBreadcrumb(group) {
+        const panel = document.getElementById('mindmap-detail-panel');
+        if (!panel) return;
+        const nChildren = group.children ? group.children.length : 0;
+        panel.style.display = 'block';
+        panel.innerHTML = `
+            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+                <button id="mindmap-back-btn" style="background:var(--bg-card);border:1px solid var(--border);color:var(--text-secondary);padding:5px 14px;border-radius:var(--radius);cursor:pointer;font-size:0.85em">
+                    \u2190 Back to Overview
+                </button>
+                <span style="font-weight:600;color:${group.color || '#ccc'};font-size:0.95em">${_esc(group.holder)}</span>
+                <span style="font-size:0.82em;color:var(--text-muted)">${group.pct.toFixed(1)}% total &middot; ${nChildren} holder(s) shown &middot; click a node for details</span>
+            </div>`;
+        document.getElementById('mindmap-back-btn').onclick = exitGroup;
+    }
 
     function showDetailPanel(n) {
         const panel = document.getElementById('mindmap-detail-panel');
         if (!panel) return;
         const sharesStr = n.shares != null
-            ? new Intl.NumberFormat().format(Math.round(n.shares))
-            : '\u2014';
-        const barW = maxPctNode ? Math.round((n.pct / maxPctNode.pct) * 100) : 100;
-        const typeLabels = {
-            insider: 'Insider / Promoter',
-            institution: 'Institution',
-            public: 'Public Float',
-        };
-        const typeLabel = n.isOthers ? 'Other Holders'
-            : (typeLabels[n.nodeType] || 'Institution');
+            ? new Intl.NumberFormat().format(Math.round(n.shares)) : '\u2014';
+        const mxPct = currentNodes.length ? Math.max(...currentNodes.map(x => x.pct)) : n.pct;
+        const barW  = Math.round((n.pct / mxPct) * 100);
+        const typeLabels = { insider: 'Insider / Promoter', institution: 'Institution', public: 'Public Float' };
+        const typeLabel  = n.isOthers ? 'Other Holders' : (typeLabels[n.nodeType] || 'Institution');
+        const backHtml = breadcrumbGroup
+            ? `<button id="mindmap-back-btn2" style="background:var(--bg-card);border:1px solid var(--border);color:var(--text-secondary);padding:4px 12px;border-radius:var(--radius);cursor:pointer;font-size:0.82em;margin-bottom:10px">\u2190 Back to ${_esc(breadcrumbGroup.holder)}</button><br>`
+            : '';
+        panel.style.display = 'block';
         panel.innerHTML = `
             <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px">
                 <div>
+                    ${backHtml}
                     <div style="font-size:1.05em;font-weight:700;color:${n.color};margin-bottom:8px">${_esc(n.holder)}</div>
                     <span style="display:inline-block;padding:3px 10px;border-radius:12px;font-size:0.75em;font-weight:600;background:${n.color}22;color:${n.color};border:1px solid ${n.color}55">${_esc(typeLabel)}</span>
                 </div>
@@ -4035,24 +4088,20 @@ function renderOwnershipMindMap(ticker, significant, othersTotal, othersCount) {
             </div>
             <div style="margin-bottom:14px">
                 <div style="display:flex;justify-content:space-between;font-size:0.78em;color:var(--text-muted);margin-bottom:5px">
-                    <span>Relative to largest holder</span>
+                    <span>Relative to largest in this view</span>
                     <span style="color:${n.color};font-weight:600">${barW}%</span>
                 </div>
                 <div style="height:8px;background:var(--border);border-radius:4px;overflow:hidden">
                     <div style="height:100%;width:${barW}%;background:linear-gradient(90deg,${n.color}99,${n.color});border-radius:4px"></div>
                 </div>
             </div>
-            <div style="display:flex;gap:28px;flex-wrap:wrap">
-                <div>
-                    <div style="font-size:0.75em;color:var(--text-muted);margin-bottom:2px">Shares Held</div>
-                    <div style="font-size:0.92em;font-weight:600;color:var(--text-primary)">${sharesStr}</div>
-                </div>
-                <div>
-                    <div style="font-size:0.75em;color:var(--text-muted);margin-bottom:2px">Click node again to reset</div>
-                    <div style="font-size:0.82em;color:var(--text-muted)">or click empty area</div>
-                </div>
+            <div style="display:flex;gap:24px;flex-wrap:wrap">
+                <div><div style="font-size:0.75em;color:var(--text-muted);margin-bottom:2px">Shares Held</div><div style="font-size:0.92em;font-weight:600;color:var(--text-primary)">${sharesStr}</div></div>
             </div>`;
-        panel.style.display = 'block';
+        if (breadcrumbGroup) {
+            const bb2 = document.getElementById('mindmap-back-btn2');
+            if (bb2) bb2.onclick = () => { activeIdx = -1; animateTo(1, 0, 0); showBreadcrumb(breadcrumbGroup); };
+        }
     }
 
     function hideDetailPanel() {
@@ -4060,58 +4109,75 @@ function renderOwnershipMindMap(ticker, significant, othersTotal, othersCount) {
         if (panel) panel.style.display = 'none';
     }
 
+    // ── Hit test (pan + zoom aware) ────────────────────────────────────────
+    function hitTest(mx, my) {
+        const ax = (mx - cx - panX) / zoomScale + cx;
+        const ay = (my - cy - panY) / zoomScale + cy;
+        // Center node in level-1 → return special -2 (go back)
+        if (breadcrumbGroup && (ax - cx) ** 2 + (ay - cy) ** 2 <= CENTER_R ** 2) return -2;
+        for (let i = 0; i < currentNodes.length; i++) {
+            const n = currentNodes[i];
+            if ((ax - n.x) ** 2 + (ay - n.y) ** 2 <= n.r ** 2) return i;
+        }
+        return -1;
+    }
+
     // ── Mouse events ───────────────────────────────────────────────────────
-    canvas.onmousedown = e => {
-        dragAnchor = { ox: panX - e.clientX, oy: panY - e.clientY };
-        didDrag = false;
-    };
+    canvas.onmousedown = e => { dragAnchor = { ox: panX - e.clientX, oy: panY - e.clientY }; didDrag = false; };
 
     canvas.onmousemove = e => {
         if (!dragAnchor) return;
-        const nx = e.clientX + dragAnchor.ox;
-        const ny = e.clientY + dragAnchor.oy;
+        const nx = e.clientX + dragAnchor.ox, ny = e.clientY + dragAnchor.oy;
         if (!didDrag && Math.hypot(nx - panX, ny - panY) > 3) didDrag = true;
-        if (didDrag) {
-            panX = nx; panY = ny;
-            canvas.style.cursor = 'grabbing';
-            draw();
-        }
+        if (didDrag) { panX = nx; panY = ny; canvas.style.cursor = 'grabbing'; draw(); }
     };
 
     canvas.onmouseup = e => {
         if (!didDrag) {
             const rect = canvas.getBoundingClientRect();
             const hit  = hitTest(e.clientX - rect.left, e.clientY - rect.top);
-            if (hit === -1 || hit === activeIdx) {
-                // Empty area or same node → reset to overview
-                activeIdx = -1;
-                animateTo(1, 0, 0);
-                hideDetailPanel();
+            if (hit === -2) {
+                // Center clicked in level-1 → back to overview
+                exitGroup();
+            } else if (hit === -1) {
+                // Click empty space
+                if (activeIdx >= 0) {
+                    activeIdx = -1;
+                    animateTo(1, 0, 0);
+                    if (breadcrumbGroup) showBreadcrumb(breadcrumbGroup);
+                    else hideDetailPanel();
+                }
             } else {
-                // New node clicked → zoom in centered on it + show detail panel
-                activeIdx = hit;
-                const n = nodeData[hit];
-                const targetZoom = 2.2;
-                // After transform: screen_x = cx + panX + z*(n.x - cx)
-                // We want screen_x = cx → panX = z*(cx - n.x)
-                animateTo(targetZoom, targetZoom * (cx - n.x), targetZoom * (cy - n.y));
-                showDetailPanel(n);
+                const n = currentNodes[hit];
+                if (n.children && n.children.length > 0 && hit !== activeIdx) {
+                    // Expandable group node → drill into it
+                    enterGroup(n);
+                } else if (hit !== activeIdx) {
+                    // Leaf node → zoom in + detail panel
+                    activeIdx = hit;
+                    animateTo(2.0, 2.0 * (cx - n.x), 2.0 * (cy - n.y));
+                    showDetailPanel(n);
+                } else {
+                    // Same leaf again → reset
+                    activeIdx = -1;
+                    animateTo(1, 0, 0);
+                    if (breadcrumbGroup) showBreadcrumb(breadcrumbGroup);
+                    else hideDetailPanel();
+                }
             }
         }
-        dragAnchor = null; didDrag = false;
-        canvas.style.cursor = 'pointer';
+        dragAnchor = null; didDrag = false; canvas.style.cursor = 'pointer';
     };
 
     canvas.onmouseleave = () => { dragAnchor = null; canvas.style.cursor = 'pointer'; };
 
-    // Outside click → reset to overview
     document.addEventListener('click', function outsideHandler(e) {
         const card = document.getElementById('ownership-mindmap-card');
         if (!card) { document.removeEventListener('click', outsideHandler); return; }
         if (!card.contains(e.target)) {
             activeIdx = -1;
             animateTo(1, 0, 0);
-            hideDetailPanel();
+            if (!breadcrumbGroup) hideDetailPanel();
         }
     });
 
@@ -4124,9 +4190,7 @@ function renderOwnershipMindMap(ticker, significant, othersTotal, othersCount) {
             ({ CW, CH } = initCanvas());
             cx = CW / 2; cy = CH / 2;
             panX = 0; panY = 0; zoomScale = 1; activeIdx = -1;
-            hideDetailPanel();
-            placeNodes();
-            resolveCollisions(100);
+            rebuild();
             draw();
         }, 150);
     });

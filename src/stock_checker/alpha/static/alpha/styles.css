@@ -390,3 +390,26 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
     .ticker-chips { gap: 4px; }
     .ticker-chip { font-size: 0.8em; padding: 3px 8px; }
 }
+
+/* ── Ownership Mind Map card ── */
+#ownership-mindmap-card .card-title {
+    margin-bottom: 16px;
+}
+
+#ownership-mindmap-container {
+    position: relative;
+    width: 100%;
+}
+
+#ownership-mindmap-canvas {
+    display: block;
+    width: 100%;
+    height: 460px;
+    border-radius: 8px;
+    background: var(--bg-card);
+}
+
+#mindmap-tooltip {
+    pointer-events: none;
+    transition: opacity 0.15s ease;
+}

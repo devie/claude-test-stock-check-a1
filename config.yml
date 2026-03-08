@@ -40,3 +40,10 @@ uma:
 seed:
   max_count: 20
   file: watchlists/seed_list.json
+
+qpm:
+  risk_free_rate: 0.065     # 6.5% BI Rate (IDX context) — override per request too
+  benchmark: "^JKSE"        # IHSG benchmark ticker
+  max_weight: 0.20          # 20% max allocation per stock
+  min_weight: 0.02          # 2% min allocation per stock
+  default_period: "3y"      # default historical data window

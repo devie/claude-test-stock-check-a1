@@ -4,7 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>IDX Anomaly Scanner</title>
+<script src="/alpha/static/alpha/html2canvas.min.js"></script>
 <style>
+.toast{position:fixed;bottom:24px;right:24px;background:#1e1e2f;border:1px solid #3a3a5e;color:#e0e0e0;padding:10px 16px;border-radius:6px;font-size:13px;z-index:9999;opacity:0;transition:opacity .3s;pointer-events:none}
+.toast.show{opacity:1}
+.toast.toast-success{border-color:#26a69a55;color:#26a69a}
+.toast.toast-error{border-color:#ef535055;color:#ef5350}
+.toast.toast-info{border-color:#42a5f555;color:#42a5f5}
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0f0f17;color:#e0e0e0;min-height:100vh}
 nav{background:#16161e;border-bottom:1px solid #2a2a3e;padding:14px 24px;display:flex;align-items:center;gap:20px;flex-wrap:wrap}
@@ -93,6 +99,7 @@ a.ext:hover{text-decoration:underline}
       <button class="btn btn-secondary" id="btn-uma" onclick="loadUMA()">&#8681; Load UMA List</button>
       <button class="btn btn-secondary" id="btn-seed" onclick="loadSeed()">&#8681; Load Seed List</button>
       <button class="btn btn-danger" onclick="clearAll()">&#215; Clear</button>
+      <button class="btn btn-secondary" onclick="screenshotPage()">&#128247; Screenshot</button>
     </div>
 
     <!-- Quick-add chips -->
@@ -126,18 +133,18 @@ a.ext:hover{text-decoration:underline}
     <table id="result-table" style="display:none">
       <thead>
         <tr>
-          <th>Ticker</th>
+          <th style="cursor:pointer" onclick="sortTable(0)">Ticker</th>
           <th style="cursor:pointer" onclick="sortTable(1)">Score ▼</th>
-          <th>Severity</th>
+          <th style="cursor:pointer" onclick="sortTable(2)">Severity</th>
           <th style="cursor:pointer" onclick="sortTable(3)">Price</th>
           <th style="cursor:pointer" onclick="sortTable(4)">Chg %</th>
           <th style="cursor:pointer" onclick="sortTable(5)">Vol Ratio</th>
           <th style="cursor:pointer" onclick="sortTable(6)">Z-Score</th>
           <th style="cursor:pointer" onclick="sortTable(7)">PBV</th>
           <th style="cursor:pointer" onclick="sortTable(8)">PBV Jump</th>
-          <th>Rules</th>
-          <th>UMA</th>
-          <th>UMA Date</th>
+          <th style="cursor:pointer" onclick="sortTable(9)">Rules</th>
+          <th style="cursor:pointer" onclick="sortTable(10)">UMA</th>
+          <th style="cursor:pointer" onclick="sortTable(11)">UMA Date</th>
           <th>Links</th>
         </tr>
       </thead>
@@ -171,12 +178,15 @@ function sortTable(col) {
   const tbody = document.getElementById('result-body');
   const rows = Array.from(tbody.querySelectorAll('tr'));
   rows.sort((a, b) => {
-    const va = parseFloat(a.cells[col]?.dataset.val ?? 'NaN');
-    const vb = parseFloat(b.cells[col]?.dataset.val ?? 'NaN');
-    if (isNaN(va) && isNaN(vb)) return 0;
-    if (isNaN(va)) return 1;
-    if (isNaN(vb)) return -1;
-    return (va - vb) * _sortDir;
+    const va = a.cells[col]?.dataset.val ?? '';
+    const vb = b.cells[col]?.dataset.val ?? '';
+    const na = parseFloat(va), nb = parseFloat(vb);
+    if (!isNaN(na) && !isNaN(nb)) return (na - nb) * _sortDir;
+    // Text sort — empty values always last
+    if (va === '' && vb === '') return 0;
+    if (va === '') return 1;
+    if (vb === '') return -1;
+    return va.localeCompare(vb) * _sortDir;
   });
   rows.forEach(r => tbody.appendChild(r));
   // Update header arrows
@@ -325,9 +335,11 @@ function renderResults(results, runAt) {
       return;
     }
     const sev = r.severity || 'none';
+    const sevOrder = {none:0, low:1, medium:2, high:3, critical:4}[sev] ?? 0;
     const scoreW = Math.min(100, r.score || 0);
     const fillClass = sev === 'critical' || sev === 'high' ? sev : (sev === 'medium' ? 'medium' : '');
-    const rules = (r.rules_triggered || []).map(n => `<span class="tag">${n}</span>`).join('');
+    const rulesList = r.rules_triggered || [];
+    const rules = rulesList.map(n => `<span class="tag">${n}</span>`).join('');
     const umaTag = r.is_uma ? '<span class="badge badge-uma">UMA</span>' : '—';
     const chgColor = r.change_pct != null ? (r.change_pct >= 0 ? '#26a69a' : '#ef5350') : '';
     const chg = r.change_pct != null
@@ -335,7 +347,7 @@ function renderResults(results, runAt) {
       : '—';
     tbody.innerHTML += `
       <tr>
-        <td><strong>${r.ticker}</strong></td>
+        <td data-val="${r.ticker}"><strong>${r.ticker}</strong></td>
         <td data-val="${r.score ?? ''}">
           <div class="score-bar">
             <span style="min-width:36px;font-weight:600;color:${scoreW>=70?'#ef5350':scoreW>=40?'#ffca28':'#aaa'}">${r.score}</span>
@@ -344,16 +356,16 @@ function renderResults(results, runAt) {
             </div>
           </div>
         </td>
-        <td><span class="badge badge-${sev}">${sev}</span></td>
+        <td data-val="${sevOrder}"><span class="badge badge-${sev}">${sev}</span></td>
         <td data-val="${r.price ?? ''}">${fmtPrice(r.price)}</td>
         <td data-val="${r.change_pct ?? ''}">${chg}</td>
         <td data-val="${r.vol_ratio ?? ''}">${fmtX(r.vol_ratio)}</td>
         <td data-val="${r.z_score ?? ''}">${fmtFloat2(r.z_score)}</td>
         <td data-val="${r.pbv ?? ''}">${fmtFloat2(r.pbv)}</td>
         <td data-val="${r.pbv_jump ?? ''}">${fmtX(r.pbv_jump)}</td>
-        <td>${rules||'—'}</td>
-        <td>${umaTag}</td>
-        <td style="color:#aaa;font-size:12px">${r.uma_date || '—'}</td>
+        <td data-val="${rulesList.length}">${rules||'—'}</td>
+        <td data-val="${r.is_uma ? 1 : 0}">${umaTag}</td>
+        <td data-val="${r.uma_date ? new Date(r.uma_date).getTime() : ''}" style="color:#aaa;font-size:12px">${r.uma_date || '—'}</td>
         <td>
           <a class="ext" href="https://stock.zuhdi.id/alpha/#detail/${r.ticker}" target="_blank">Detail</a> ·
           <a class="ext" href="${r.links?.chart||'#'}" target="_blank">Chart</a>
@@ -368,6 +380,43 @@ function renderResults(results, runAt) {
 function setStatus(html) { document.getElementById('status').innerHTML = html; }
 function setError(msg)   { const el = document.getElementById('error'); el.textContent = msg; el.style.display = 'block'; }
 function clearError()    { document.getElementById('error').style.display = 'none'; }
+
+// ── Toast ────────────────────────────────────────────────────────────────────
+let _toastTimer = null;
+function showToast(msg, type = 'info') {
+  let el = document.getElementById('_toast');
+  if (!el) { el = document.createElement('div'); el.id = '_toast'; el.className = 'toast'; document.body.appendChild(el); }
+  el.textContent = msg;
+  el.className = `toast toast-${type} show`;
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => { el.classList.remove('show'); }, 3000);
+}
+
+// ── Screenshot ───────────────────────────────────────────────────────────────
+async function screenshotPage() {
+  if (typeof html2canvas === 'undefined') {
+    showToast('Screenshot library not loaded. Refresh and try again.', 'error'); return;
+  }
+  showToast('Capturing screenshot…', 'info');
+  try {
+    const canvas = await html2canvas(document.querySelector('main'), {
+      backgroundColor: '#0f0f17', scale: 2, useCORS: true, logging: false,
+    });
+    canvas.toBlob(async (blob) => {
+      if (!blob) { showToast('Screenshot failed', 'error'); return; }
+      try {
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+        showToast('Screenshot copied to clipboard!', 'success');
+      } catch {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = 'anomaly-scanner.png'; a.click();
+        URL.revokeObjectURL(url);
+        showToast('Clipboard unavailable — downloaded as PNG', 'info');
+      }
+    }, 'image/png');
+  } catch (e) { showToast('Screenshot error: ' + e.message, 'error'); }
+}
 </script>
 </body>
 </html>

@@ -21,6 +21,7 @@ from stock_checker.fetcher import fetch_stock
 from stock_checker.indicators import calc_sma, calc_rsi, get_summary, format_number
 from stock_checker.alpha import init_alpha
 from stock_checker.idx_anomaly import init_idx_anomaly
+from stock_checker.routes_qpm import init_qpm
 
 app = Flask(
     __name__,
@@ -69,6 +70,9 @@ init_alpha(app)
 
 # Initialize IDX Anomaly Scanner module
 init_idx_anomaly(app)
+
+# Initialize QPM module
+init_qpm(app)
 
 
 def _build_chart_data(df, ticker):

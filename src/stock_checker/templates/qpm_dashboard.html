@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QPM — Quantitative Portfolio Management</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #16161e;
+      --bg2:       #1e1e2f;
+      --bg3:       #252538;
+      --border:    #2a2a3e;
+      --text:      #e0e0e0;
+      --text-muted:#888;
+      --accent:    #7c3aed;
+      --accent2:   #a78bfa;
+      --green:     #26a69a;
+      --red:       #ef5350;
+      --blue:      #2196F3;
+      --orange:    #FF9800;
+    }
+
+    body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+    /* ── Nav ── */
+    nav {
+      display: flex; align-items: center; gap: 16px;
+      padding: 0 24px; height: 54px;
+      background: var(--bg2); border-bottom: 1px solid var(--border);
+      position: sticky; top: 0; z-index: 100;
+    }
+    .nav-brand { font-weight: 700; font-size: 1.05rem; color: var(--accent2); white-space: nowrap; }
+    .nav-links { display: flex; gap: 4px; flex: 1; }
+    .nav-link {
+      padding: 6px 12px; border-radius: 6px; text-decoration: none;
+      color: var(--text-muted); font-size: 0.85rem; transition: all .15s;
+    }
+    .nav-link:hover, .nav-link.active { background: var(--bg3); color: var(--text); }
+    .nav-link.active { color: var(--accent2); }
+
+    /* ── Layout ── */
+    .container { max-width: 1200px; margin: 0 auto; padding: 24px 16px; }
+    h1 { font-size: 1.4rem; font-weight: 600; margin-bottom: 4px; }
+    .subtitle { color: var(--text-muted); font-size: 0.85rem; margin-bottom: 24px; }
+
+    /* ── Controls ── */
+    .controls-card {
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+      padding: 20px; margin-bottom: 20px;
+    }
+    .controls-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;
+    }
+    @media (max-width: 600px) { .controls-grid { grid-template-columns: 1fr; } }
+
+    label { display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 6px; font-weight: 500; letter-spacing: .03em; text-transform: uppercase; }
+    input[type=text], input[type=number], select, textarea {
+      width: 100%; padding: 9px 12px; border-radius: 8px;
+      background: var(--bg3); border: 1px solid var(--border);
+      color: var(--text); font-size: 0.9rem; outline: none; transition: border-color .15s;
+    }
+    input:focus, select:focus, textarea:focus { border-color: var(--accent2); }
+    textarea { resize: vertical; min-height: 70px; font-family: monospace; }
+
+    .controls-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+    .control-group { display: flex; flex-direction: column; min-width: 120px; flex: 1; }
+
+    /* ── Buttons ── */
+    .btn {
+      padding: 10px 20px; border-radius: 8px; border: none; cursor: pointer;
+      font-size: 0.88rem; font-weight: 600; transition: all .15s; white-space: nowrap;
+    }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: #6d28d9; }
+    .btn-primary:disabled { opacity: .5; cursor: default; }
+    .btn-secondary { background: var(--bg3); color: var(--text); border: 1px solid var(--border); }
+    .btn-secondary:hover { border-color: var(--accent2); }
+    .btn-sm { padding: 6px 14px; font-size: 0.8rem; }
+
+    /* ── States ── */
+    #loading {
+      display: none; flex-direction: column; align-items: center; gap: 12px;
+      padding: 48px; color: var(--text-muted);
+    }
+    .spinner {
+      width: 36px; height: 36px; border-radius: 50%;
+      border: 3px solid var(--border); border-top-color: var(--accent2);
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #error-box {
+      display: none; background: rgba(239,83,80,.12); border: 1px solid rgba(239,83,80,.3);
+      border-radius: 8px; padding: 12px 16px; color: #ef9a9a; margin-bottom: 16px; font-size: 0.88rem;
+    }
+    #warn-box {
+      display: none; background: rgba(255,152,0,.1); border: 1px solid rgba(255,152,0,.3);
+      border-radius: 8px; padding: 12px 16px; color: #ffcc80; margin-bottom: 16px; font-size: 0.88rem;
+    }
+
+    /* ── Results ── */
+    #results { display: none; }
+
+    .section-title {
+      font-size: 0.8rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase;
+      letter-spacing: .06em; margin-bottom: 12px;
+    }
+
+    /* Metric cards */
+    .metrics-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 12px; margin-bottom: 20px;
+    }
+    .metric-card {
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
+      padding: 14px 16px;
+    }
+    .metric-label { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .04em; }
+    .metric-value { font-size: 1.4rem; font-weight: 700; }
+    .metric-value.positive { color: var(--green); }
+    .metric-value.negative { color: var(--red); }
+    .metric-value.neutral { color: var(--accent2); }
+
+    /* Chart grid */
+    .chart-grid-2 {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px;
+    }
+    @media (max-width: 800px) { .chart-grid-2 { grid-template-columns: 1fr; } }
+
+    .chart-card {
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+      padding: 16px;
+    }
+    .chart-card-full {
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+      padding: 16px; margin-bottom: 20px;
+    }
+
+    /* Table */
+    .table-card {
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+      padding: 16px; margin-bottom: 20px; overflow-x: auto;
+    }
+    .table-header {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 12px;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+    th {
+      text-align: left; padding: 8px 10px; color: var(--text-muted); font-weight: 500;
+      font-size: 0.75rem; text-transform: uppercase; letter-spacing: .04em;
+      border-bottom: 1px solid var(--border);
+    }
+    td { padding: 9px 10px; border-bottom: 1px solid rgba(255,255,255,.04); }
+    tr:hover td { background: rgba(255,255,255,.025); }
+    .badge {
+      display: inline-block; padding: 2px 8px; border-radius: 4px;
+      font-size: 0.75rem; font-weight: 600;
+    }
+    .badge-weight { background: rgba(124,58,237,.25); color: var(--accent2); }
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-brand">Stock Alpha</div>
+  <div class="nav-links">
+    <a href="/alpha/" class="nav-link">Dashboard</a>
+    <a href="/anomaly/" class="nav-link" style="color:#e91e8c">Anomaly Scanner</a>
+    <a href="/qpm/" class="nav-link active">QPM</a>
+  </div>
+</nav>
+
+<div class="container">
+  <h1>Quantitative Portfolio Management</h1>
+  <p class="subtitle">Optimize your watchlist using factor signals and modern portfolio theory.</p>
+
+  <!-- Controls -->
+  <div class="controls-card">
+    <div class="controls-grid">
+      <div>
+        <label>Tickers (comma-separated)</label>
+        <textarea id="inp-tickers" placeholder="BBCA.JK, TLKM.JK, ASII.JK, BMRI.JK, UNVR.JK, ICBP.JK, KLBF.JK">BBCA.JK, TLKM.JK, ASII.JK, BMRI.JK, UNVR.JK, ICBP.JK, KLBF.JK</textarea>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <div>
+          <label>Optimization Method</label>
+          <select id="inp-method">
+            <option value="max_sharpe">Max Sharpe Ratio</option>
+            <option value="min_variance">Minimum Variance</option>
+            <option value="risk_parity">Risk Parity</option>
+            <option value="factor_weighted">Factor Weighted</option>
+          </select>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div>
+            <label>Historical Period</label>
+            <select id="inp-period">
+              <option value="3y">3 Years</option>
+              <option value="1y">1 Year</option>
+              <option value="5y" selected>5 Years</option>
+            </select>
+          </div>
+          <div>
+            <label>Risk-Free Rate (%)</label>
+            <input type="number" id="inp-rf" value="6.5" step="0.1" min="0" max="20">
+          </div>
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+      <button class="btn btn-primary" id="btn-optimize" onclick="runOptimize()">
+        &#9654; Optimize Portfolio
+      </button>
+      <button class="btn btn-secondary" id="btn-backtest" onclick="runBacktest()" disabled>
+        &#8635; Run Backtest
+      </button>
+      <span id="status-text" style="font-size:.82rem;color:var(--text-muted);"></span>
+    </div>
+  </div>
+
+  <!-- Error / warning -->
+  <div id="error-box"></div>
+  <div id="warn-box"></div>
+
+  <!-- Loading -->
+  <div id="loading">
+    <div class="spinner"></div>
+    <p id="loading-text">Running optimization — this may take 15–30 seconds for large watchlists…</p>
+  </div>
+
+  <!-- Results -->
+  <div id="results">
+
+    <!-- Metric cards -->
+    <p class="section-title">Portfolio Metrics</p>
+    <div class="metrics-grid">
+      <div class="metric-card">
+        <div class="metric-label">Expected Return</div>
+        <div class="metric-value" id="m-return">—</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Volatility</div>
+        <div class="metric-value neutral" id="m-vol">—</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Sharpe Ratio</div>
+        <div class="metric-value" id="m-sharpe">—</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Max Drawdown</div>
+        <div class="metric-value" id="m-dd">—</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Diversification Ratio</div>
+        <div class="metric-value neutral" id="m-div">—</div>
+      </div>
+    </div>
+
+    <!-- Efficient frontier -->
+    <div class="chart-card-full">
+      <p class="section-title">Efficient Frontier</p>
+      <div id="chart-frontier" style="height:320px;"></div>
+    </div>
+
+    <!-- Portfolio weights -->
+    <div class="chart-card-full">
+      <p class="section-title">Portfolio Weights</p>
+      <div id="chart-weights" style="height:320px;"></div>
+    </div>
+
+    <!-- Factor exposure bar chart -->
+    <div class="chart-card-full">
+      <p class="section-title">Factor Exposures (Portfolio-Weighted)</p>
+      <div id="chart-factors" style="height:220px;"></div>
+    </div>
+
+    <!-- Backtest chart -->
+    <div class="chart-card-full" id="backtest-section" style="display:none;">
+      <div class="table-header">
+        <p class="section-title" style="margin:0">Backtest: Portfolio vs IHSG</p>
+        <span id="backtest-dd" style="font-size:.8rem;color:var(--red);"></span>
+      </div>
+      <div id="chart-backtest" style="height:320px;"></div>
+    </div>
+
+    <!-- Ticker stats table -->
+    <div class="table-card">
+      <div class="table-header">
+        <p class="section-title" style="margin:0">Holdings Detail</p>
+        <button class="btn btn-secondary btn-sm" onclick="exportCsv()">&#8595; Export CSV</button>
+      </div>
+      <table id="tbl-stats">
+        <thead>
+          <tr>
+            <th>Ticker</th>
+            <th>Weight</th>
+            <th>Exp. Return</th>
+            <th>Volatility</th>
+            <th>Momentum</th>
+            <th>Low Vol</th>
+            <th>Value</th>
+            <th>Quality</th>
+            <th>Factor Score</th>
+          </tr>
+        </thead>
+        <tbody id="tbl-body"></tbody>
+      </table>
+    </div>
+
+  </div><!-- /results -->
+</div><!-- /container -->
+
+<script>
+// ── State ────────────────────────────────────────────────────────────────────
+let _lastResult = null;
+let _lastTickers = [];
+let _lastMethod = 'max_sharpe';
+
+const PLOTLY_LAYOUT_BASE = {
+  paper_bgcolor: '#1e1e2f',
+  plot_bgcolor:  '#1e1e2f',
+  font: { color: '#e0e0e0', size: 11 },
+  margin: { l: 50, r: 20, t: 20, b: 40 },
+  xaxis: { gridcolor: '#2a2a3e' },
+  yaxis: { gridcolor: '#2a2a3e' },
+};
+const PLOTLY_CFG = { responsive: true, displayModeBar: false };
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+function showError(msg) {
+  const el = document.getElementById('error-box');
+  el.textContent = '⚠ ' + msg;
+  el.style.display = 'block';
+}
+function clearError() {
+  document.getElementById('error-box').style.display = 'none';
+  document.getElementById('warn-box').style.display = 'none';
+}
+function showWarn(msg) {
+  const el = document.getElementById('warn-box');
+  el.textContent = '⚡ ' + msg;
+  el.style.display = 'block';
+}
+function setLoading(on, text) {
+  document.getElementById('loading').style.display = on ? 'flex' : 'none';
+  if (text) document.getElementById('loading-text').textContent = text;
+  document.getElementById('btn-optimize').disabled = on;
+}
+function parseTickers() {
+  return document.getElementById('inp-tickers').value
+    .split(/[\s,;]+/).map(t => t.trim().toUpperCase()).filter(Boolean);
+}
+
+// ── Optimize ─────────────────────────────────────────────────────────────────
+async function runOptimize() {
+  clearError();
+  const tickers = parseTickers();
+  if (tickers.length < 3) {
+    showError('QPM requires at least 3 tickers.');
+    return;
+  }
+  const method = document.getElementById('inp-method').value;
+  const period = document.getElementById('inp-period').value;
+  const rf     = parseFloat(document.getElementById('inp-rf').value) / 100;
+
+  _lastTickers = tickers;
+  _lastMethod  = method;
+
+  setLoading(true, 'Fetching price data and running optimization — may take 15–30 s…');
+  document.getElementById('results').style.display = 'none';
+  document.getElementById('backtest-section').style.display = 'none';
+
+  try {
+    const res = await fetch('/qpm/optimize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tickers, period, method, risk_free_rate: rf }),
+    });
+    const data = await res.json();
+    if (!res.ok) { showError(data.error || 'Optimization failed'); return; }
+    _lastResult = data;
+    renderResults(data);
+    document.getElementById('btn-backtest').disabled = false;
+    document.getElementById('status-text').textContent =
+      `Optimized ${data.ticker_stats.length} tickers · ${method.replace('_',' ')} · ${period}`;
+  } catch (e) {
+    showError('Network error: ' + e.message);
+  } finally {
+    setLoading(false);
+  }
+}
+
+// ── Backtest ──────────────────────────────────────────────────────────────────
+async function runBacktest() {
+  if (!_lastTickers.length) return;
+  clearError();
+  const period = document.getElementById('inp-period').value;
+  const rf     = parseFloat(document.getElementById('inp-rf').value) / 100;
+
+  setLoading(true, 'Running backtest with monthly rebalancing vs IHSG…');
+
+  const params = new URLSearchParams({
+    tickers: _lastTickers.join(','),
+    period: period === '1y' ? '3y' : period,  // backtest needs more history
+    rf,
+  });
+  try {
+    const res = await fetch(`/qpm/backtest/${_lastMethod}?${params}`);
+    const data = await res.json();
+    if (!res.ok || data.error) { showError(data.error || 'Backtest failed'); return; }
+    renderBacktest(data);
+  } catch (e) {
+    showError('Backtest network error: ' + e.message);
+  } finally {
+    setLoading(false);
+  }
+}
+
+// ── Render Results ────────────────────────────────────────────────────────────
+function renderResults(data) {
+  const m = data.metrics;
+  setMetric('m-return', m.expected_return.toFixed(1) + '%',
+    m.expected_return >= 0 ? 'positive' : 'negative');
+  setMetric('m-vol',    m.volatility.toFixed(1) + '%', 'neutral');
+  setMetric('m-sharpe', m.sharpe_ratio.toFixed(2),
+    m.sharpe_ratio >= 1 ? 'positive' : m.sharpe_ratio >= 0 ? 'neutral' : 'negative');
+  setMetric('m-dd',     '—', 'neutral');   // filled after backtest
+  setMetric('m-div',    m.diversification_ratio.toFixed(2), 'neutral');
+
+  renderWeightsPie(data.ticker_stats);
+  renderFrontier(data.efficient_frontier, data.metrics);
+  renderFactors(data.factor_exposure);
+  renderTable(data.ticker_stats);
+
+  document.getElementById('results').style.display = 'block';
+}
+
+function setMetric(id, text, cls) {
+  const el = document.getElementById(id);
+  el.textContent = text;
+  el.className = 'metric-value ' + (cls || '');
+}
+
+function renderWeightsPie(stats) {
+  const trace = {
+    type: 'pie',
+    labels: stats.map(r => r.ticker),
+    values: stats.map(r => r.weight),
+    textinfo: 'label+percent',
+    hole: 0.4,
+    marker: {
+      colors: [
+        '#7c3aed','#2196F3','#26a69a','#FF9800','#ef5350',
+        '#9C27B0','#00BCD4','#8BC34A','#FF5722','#607D8B',
+      ],
+    },
+  };
+  Plotly.newPlot('chart-weights', [trace], {
+    ...PLOTLY_LAYOUT_BASE,
+    showlegend: false,
+    margin: { l: 10, r: 10, t: 10, b: 10 },
+  }, PLOTLY_CFG);
+}
+
+function renderFrontier(frontier, optimal) {
+  const traces = [];
+  if (frontier && frontier.length) {
+    traces.push({
+      type: 'scatter', mode: 'lines',
+      x: frontier.map(p => p.volatility),
+      y: frontier.map(p => p.return),
+      name: 'Efficient Frontier',
+      line: { color: '#7c3aed', width: 2 },
+    });
+  }
+  if (optimal) {
+    traces.push({
+      type: 'scatter', mode: 'markers',
+      x: [optimal.volatility], y: [optimal.expected_return],
+      name: 'Optimal',
+      marker: { color: '#FF9800', size: 10, symbol: 'star' },
+    });
+  }
+  Plotly.newPlot('chart-frontier', traces, {
+    ...PLOTLY_LAYOUT_BASE,
+    xaxis: { ...PLOTLY_LAYOUT_BASE.xaxis, title: 'Volatility (%)' },
+    yaxis: { ...PLOTLY_LAYOUT_BASE.yaxis, title: 'Return (%)' },
+    legend: { x: 0, y: 1 },
+  }, PLOTLY_CFG);
+}
+
+function renderFactors(exp) {
+  const labels = ['Momentum', 'Low Volatility', 'Value', 'Quality'];
+  const keys   = ['momentum', 'low_vol', 'value', 'quality'];
+  const values = keys.map(k => exp[k] || 0);
+  const colors = values.map(v => v >= 0.5 ? '#26a69a' : '#7c3aed');
+
+  Plotly.newPlot('chart-factors', [{
+    type: 'bar', orientation: 'h',
+    x: values, y: labels,
+    marker: { color: colors },
+    text: values.map(v => v.toFixed(3)),
+    textposition: 'outside',
+  }], {
+    ...PLOTLY_LAYOUT_BASE,
+    xaxis: { ...PLOTLY_LAYOUT_BASE.xaxis, range: [0, 1], title: 'Portfolio Exposure' },
+    margin: { l: 110, r: 50, t: 10, b: 30 },
+  }, PLOTLY_CFG);
+}
+
+function renderTable(stats) {
+  const tbody = document.getElementById('tbl-body');
+  const sign  = v => v >= 0 ? '+' : '';
+  const col   = v => `color:${v >= 0 ? 'var(--green)' : 'var(--red)'}`;
+  tbody.innerHTML = stats.map(r => `
+    <tr>
+      <td><strong>${r.ticker}</strong></td>
+      <td><span class="badge badge-weight">${r.weight.toFixed(1)}%</span></td>
+      <td style="${col(r.expected_return)}">${sign(r.expected_return)}${r.expected_return.toFixed(1)}%</td>
+      <td>${r.volatility.toFixed(1)}%</td>
+      <td>${r.momentum.toFixed(3)}</td>
+      <td>${r.low_vol.toFixed(3)}</td>
+      <td>${r.value.toFixed(3)}</td>
+      <td>${r.quality.toFixed(3)}</td>
+      <td style="color:var(--accent2)">${r.factor_score.toFixed(3)}</td>
+    </tr>
+  `).join('');
+}
+
+// ── Render Backtest ───────────────────────────────────────────────────────────
+function renderBacktest(data) {
+  const section = document.getElementById('backtest-section');
+  section.style.display = 'block';
+
+  if (data.max_drawdown !== undefined) {
+    document.getElementById('m-dd').textContent = '-' + Math.abs(data.max_drawdown).toFixed(1) + '%';
+    document.getElementById('m-dd').className = 'metric-value negative';
+    document.getElementById('backtest-dd').textContent =
+      `Max Drawdown: -${Math.abs(data.max_drawdown).toFixed(1)}%`;
+  }
+
+  const traces = [];
+  if (data.portfolio && data.portfolio.length) {
+    traces.push({
+      type: 'scatter', mode: 'lines',
+      x: data.portfolio.map(d => d.date),
+      y: data.portfolio.map(d => d.cumulative),
+      name: 'Portfolio', line: { color: '#7c3aed', width: 2 },
+    });
+  }
+  if (data.benchmark && data.benchmark.length) {
+    traces.push({
+      type: 'scatter', mode: 'lines',
+      x: data.benchmark.map(d => d.date),
+      y: data.benchmark.map(d => d.cumulative),
+      name: 'IHSG', line: { color: '#888', width: 1.5, dash: 'dot' },
+    });
+  }
+
+  Plotly.newPlot('chart-backtest', traces, {
+    ...PLOTLY_LAYOUT_BASE,
+    xaxis: { ...PLOTLY_LAYOUT_BASE.xaxis, type: 'date' },
+    yaxis: { ...PLOTLY_LAYOUT_BASE.yaxis, title: 'Cumulative Return (%)' },
+    legend: { x: 0, y: 1 },
+    margin: { l: 60, r: 20, t: 10, b: 40 },
+  }, PLOTLY_CFG);
+
+  // Add rebalance date shapes
+  if (data.rebalance_dates && data.rebalance_dates.length) {
+    const shapes = data.rebalance_dates.map(d => ({
+      type: 'line', x0: d, x1: d, y0: 0, y1: 1,
+      xref: 'x', yref: 'paper',
+      line: { color: 'rgba(255,255,255,.08)', width: 1, dash: 'dot' },
+    }));
+    Plotly.relayout('chart-backtest', { shapes });
+  }
+}
+
+// ── Export CSV ────────────────────────────────────────────────────────────────
+async function exportCsv() {
+  if (!_lastResult) return;
+  try {
+    const res = await fetch('/qpm/export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ticker_stats: _lastResult.ticker_stats,
+        method: _lastResult.method,
+      }),
+    });
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `qpm_${_lastResult.method}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    showError('Export failed: ' + e.message);
+  }
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+// Pre-fill from URL param ?tickers=...
+(function init() {
+  const params = new URLSearchParams(location.search);
+  const t = params.get('tickers');
+  if (t) document.getElementById('inp-tickers').value = t.replace(/,/g, ', ');
+})();
+</script>
+</body>
+</html>

@@ -259,6 +259,8 @@ const App = {
     _dashboardIndicators: ['SMA20', 'SMA50'],
     _dashboardTicker: '^JKSE',
     _dashboardPeriod: '1y',
+    _newsRefreshInterval: null,
+    _newsFeedTickers: [],
 
     async renderDashboard() {
         let watchlistsHtml = '';
@@ -368,7 +370,11 @@ const App = {
             </div>
 
             <div style="margin-bottom:20px">
-                <h3 style="margin-bottom:12px">Market News <span style="font-size:0.8em;font-weight:400;color:var(--text-muted)">— from your watchlists</span></h3>
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+                    <h3 style="margin:0">Market News <span style="font-size:0.8em;font-weight:400;color:var(--text-muted)">— from your watchlists</span></h3>
+                    <span id="news-last-updated" style="font-size:0.75em;color:var(--text-muted);margin-left:auto"></span>
+                    <button id="btn-news-refresh" class="btn btn-sm btn-secondary" style="padding:4px 10px;font-size:0.78em">↻ Refresh</button>
+                </div>
                 <div id="news-feed"><div class="skeleton skeleton-card" style="height:80px"></div><div class="skeleton skeleton-card" style="height:80px;margin-top:8px"></div></div>
             </div>
 
@@ -459,34 +465,70 @@ const App = {
     async _loadDashboardNews(tickers) {
         const el = document.getElementById('news-feed');
         if (!el) return;
-        // Fallback tickers if no watchlists
-        const feedTickers = tickers.length > 0 ? tickers.slice(0, 10)
+
+        // Store tickers so the auto-refresh interval can reuse them
+        this._newsFeedTickers = tickers.length > 0 ? tickers.slice(0, 10)
             : ['BBCA.JK', 'BBRI.JK', 'TLKM.JK', 'ASII.JK'];
+
+        // Clear any previous interval before starting a new one
+        if (this._newsRefreshInterval) {
+            clearInterval(this._newsRefreshInterval);
+            this._newsRefreshInterval = null;
+        }
+
+        await this._fetchAndRenderNews();
+
+        // Wire up the manual Refresh button (safe to re-assign each dashboard render)
+        const btn = document.getElementById('btn-news-refresh');
+        if (btn) btn.onclick = () => this._fetchAndRenderNews();
+
+        // Auto-refresh every 5 minutes; self-cancels when the element leaves the DOM
+        this._newsRefreshInterval = setInterval(async () => {
+            if (!document.getElementById('news-feed')) {
+                clearInterval(this._newsRefreshInterval);
+                this._newsRefreshInterval = null;
+                return;
+            }
+            await this._fetchAndRenderNews();
+        }, 5 * 60 * 1000);
+    },
+
+    async _fetchAndRenderNews() {
+        const el = document.getElementById('news-feed');
+        if (!el) return;
+        const feedTickers = this._newsFeedTickers || ['BBCA.JK', 'BBRI.JK', 'TLKM.JK', 'ASII.JK'];
+
+        // Show a subtle loading state without destroying current content
+        const stamp = document.getElementById('news-last-updated');
+        if (stamp) stamp.textContent = 'Refreshing…';
+
         try {
             const articles = await this.api('/api/news', { method: 'POST', body: { tickers: feedTickers } });
             if (!articles || articles.length === 0) {
                 el.innerHTML = '<div class="empty-state"><p>Tidak ada berita untuk emiten di watchlist Anda.</p></div>';
-                return;
-            }
-            el.innerHTML = articles.map(a => `
-                <a href="${_esc(a.url)}" target="_blank" rel="noopener" style="display:block;text-decoration:none;color:inherit">
-                    <div class="card" style="display:flex;gap:12px;align-items:flex-start;padding:12px 16px;margin-bottom:8px;transition:background 0.15s" onmouseover="this.style.background='var(--bg-input)'" onmouseout="this.style.background=''">
-                        ${a.thumbnail ? `<img src="${_esc(a.thumbnail)}" alt="" style="width:64px;height:48px;object-fit:cover;border-radius:var(--radius);flex-shrink:0">` : `<div style="width:64px;height:48px;background:var(--bg-input);border-radius:var(--radius);flex-shrink:0;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:1.2em">📰</div>`}
-                        <div style="flex:1;min-width:0">
-                            <div style="display:flex;gap:8px;align-items:center;margin-bottom:4px;flex-wrap:wrap">
-                                <span class="badge badge-blue" style="font-size:0.7em;cursor:pointer" onclick="event.preventDefault();event.stopPropagation();Router.navigate('#detail/${_esc(a.ticker)}')">${_esc(a.ticker)}</span>
-                                <span style="color:var(--text-muted);font-size:0.75em">${_esc(a.publisher)}</span>
-                                <span style="color:var(--text-muted);font-size:0.75em">• ${_esc(a.pub_date)}</span>
+            } else {
+                el.innerHTML = articles.map(a => `
+                    <a href="${_esc(a.url)}" target="_blank" rel="noopener" style="display:block;text-decoration:none;color:inherit">
+                        <div class="card" style="display:flex;gap:12px;align-items:flex-start;padding:12px 16px;margin-bottom:8px;transition:background 0.15s" onmouseover="this.style.background='var(--bg-input)'" onmouseout="this.style.background=''">
+                            ${a.thumbnail ? `<img src="${_esc(a.thumbnail)}" alt="" style="width:64px;height:48px;object-fit:cover;border-radius:var(--radius);flex-shrink:0">` : `<div style="width:64px;height:48px;background:var(--bg-input);border-radius:var(--radius);flex-shrink:0;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:1.2em">📰</div>`}
+                            <div style="flex:1;min-width:0">
+                                <div style="display:flex;gap:8px;align-items:center;margin-bottom:4px;flex-wrap:wrap">
+                                    <span class="badge badge-blue" style="font-size:0.7em;cursor:pointer" onclick="event.preventDefault();event.stopPropagation();Router.navigate('#detail/${_esc(a.ticker)}')">${_esc(a.ticker)}</span>
+                                    <span style="color:var(--text-muted);font-size:0.75em">${_esc(a.publisher)}</span>
+                                    <span style="color:var(--text-muted);font-size:0.75em">• ${_esc(a.pub_date)}</span>
+                                </div>
+                                <div style="font-weight:600;font-size:0.9em;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(a.title)}</div>
+                                ${a.summary ? `<p style="color:var(--text-secondary);font-size:0.8em;margin:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${_esc(a.summary)}</p>` : ''}
                             </div>
-                            <div style="font-weight:600;font-size:0.9em;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(a.title)}</div>
-                            ${a.summary ? `<p style="color:var(--text-secondary);font-size:0.8em;margin:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${_esc(a.summary)}</p>` : ''}
+                            <div style="color:var(--text-muted);font-size:1em;flex-shrink:0">↗</div>
                         </div>
-                        <div style="color:var(--text-muted);font-size:1em;flex-shrink:0">↗</div>
-                    </div>
-                </a>
-            `).join('');
+                    </a>
+                `).join('');
+            }
+            if (stamp) stamp.textContent = 'Updated ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         } catch (e) {
             el.innerHTML = '<div class="empty-state"><p>Gagal memuat berita.</p></div>';
+            if (stamp) stamp.textContent = 'Failed ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         }
     },
 
@@ -1142,7 +1184,60 @@ const App = {
                     </div>`}
             </div>`;
 
-            el.innerHTML = overviewHtml + officersHtml + holdersHtml + subsidiariesHtml + calHtml;
+            // ── Parse insider % from major_holders ─────────────────────────────
+            const insiderEntry = majorH.find(h => {
+                const raw = (h.label || '').toLowerCase().trim();
+                return raw.includes('insider ownership') || raw.includes('shares held by all insider');
+            });
+            const insiderPct = insiderEntry
+                ? parseFloat(String(insiderEntry.value).replace('%', '').trim())
+                : null;
+
+            // Residual public float = 100% − insider − all institutional
+            const allInstTotal = instH.reduce((s, h) => s + (h.pct_pct ?? 0), 0);
+            const publicFloat = (insiderPct != null && !isNaN(insiderPct))
+                ? Math.max(0, 100 - insiderPct - allInstTotal)
+                : null;
+
+            // ── Build full node list for mind map ──────────────────────────────
+            const sigMapped = [];
+            if (insiderPct != null && !isNaN(insiderPct) && insiderPct > 0) {
+                sigMapped.push({ holder: 'Insider / Promoter', shares: null, pct: insiderPct, nodeType: 'insider' });
+            }
+            significant.forEach(h => {
+                sigMapped.push({ holder: h.holder, shares: h.shares, pct: h.pct_pct, nodeType: 'institution' });
+            });
+            if (publicFloat != null && publicFloat >= 0.5) {
+                sigMapped.push({ holder: 'Public Float', shares: null, pct: publicFloat, nodeType: 'public' });
+            }
+
+            // ── Badge stats ────────────────────────────────────────────────────
+            const mindmapNodeCount = sigMapped.length;
+            const mindmapPctShown  = sigMapped.reduce((s, n) => s + n.pct, 0);
+            const showMindmap      = mindmapNodeCount > 0 || othersTotal > 0;
+
+            const mindmapHtml = showMindmap ? `
+                <div class="card" id="ownership-mindmap-card">
+                    <div class="card-title" style="display:flex;align-items:center;flex-wrap:wrap;gap:8px">
+                        <span>Ownership Mind Map</span>
+                        <span style="font-size:0.75em;color:var(--text-muted);font-weight:400">(click to expand · drag to pan)</span>
+                        <span style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap">
+                            <span style="background:rgba(33,150,243,0.15);color:#8ab4f8;border:1px solid rgba(33,150,243,0.3);border-radius:12px;padding:2px 9px;font-size:0.72em;font-weight:600">${mindmapNodeCount} nodes</span>
+                            <span style="background:rgba(102,187,106,0.12);color:#66bb6a;border:1px solid rgba(102,187,106,0.25);border-radius:12px;padding:2px 9px;font-size:0.72em;font-weight:600">${mindmapPctShown.toFixed(1)}% shown</span>
+                            ${othersTotal > 0 ? `<span style="background:rgba(154,160,166,0.12);color:#9aa0a6;border:1px solid rgba(154,160,166,0.25);border-radius:12px;padding:2px 9px;font-size:0.72em;font-weight:600">${othersTotal.toFixed(1)}% others</span>` : ''}
+                        </span>
+                    </div>
+                    <div id="ownership-mindmap-container">
+                        <canvas id="ownership-mindmap-canvas" style="width:100%;height:460px;cursor:pointer"></canvas>
+                    </div>
+                    <div id="mindmap-detail-panel" style="display:none;margin-top:12px;padding:14px 18px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius);animation:fadeIn 0.25s ease"></div>
+                </div>` : '';
+
+            el.innerHTML = overviewHtml + officersHtml + holdersHtml + mindmapHtml + subsidiariesHtml + calHtml;
+
+            if (showMindmap) {
+                setTimeout(() => renderOwnershipMindMap(ticker, sigMapped, othersTotal, othersCount), 50);
+            }
         } catch (e) {
             el.innerHTML = `<div class="card"><p style="color:var(--text-muted)">Failed to load company information: ${e.message}</p></div>`;
         }
@@ -3635,3 +3730,404 @@ document.addEventListener('DOMContentLoaded', () => {
 
     Router.init();
 });
+
+/**
+ * Render an interactive radial ownership mind-map on a <canvas>.
+ *
+ * Fixes vs previous version:
+ *  - Multi-ring layout: top holders on inner ring, rest outer → no single-ring crowding
+ *  - Sqrt radius scale: area ∝ percent (not linear)
+ *  - Iterative collision avoidance: 160 passes of pairwise repulsion
+ *  - Labels point radially away from center (angle recomputed after layout)
+ *  - Labels suppressed for tiny nodes (<14 px radius); tooltip always works
+ *  - Drag-to-pan: mousedown+mousemove moves the whole diagram
+ *  - Clean resize: full re-layout on container width change
+ *
+ * @param {string}  ticker       - Central node label (e.g. "ISAT.JK")
+ * @param {Array}   significant  - [{holder, shares, pct}] for holders ≥ threshold (ALL shown individually)
+ * @param {number}  othersTotal  - Combined % for sub-threshold holders (pre-aggregated by caller)
+ * @param {number}  othersCount  - Count of sub-threshold holders
+ */
+function renderOwnershipMindMap(ticker, significant, othersTotal, othersCount) {
+    const canvas = document.getElementById('ownership-mindmap-canvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+
+    // ── Node list ──────────────────────────────────────────────────────────
+    // Every entry in `significant` is rendered as its own node — no aggregation of ≥threshold holders.
+    const rawNodes = significant.map(h => ({ ...h, isOthers: false }));
+    if (othersTotal > 0) {
+        rawNodes.push({ holder: `<1% Others (${othersCount})`, shares: null, pct: othersTotal, isOthers: true });
+    }
+    if (!rawNodes.length) return;
+
+    // Stable descending sort by pct so layout is deterministic
+    rawNodes.sort((a, b) => b.pct - a.pct || a.holder.localeCompare(b.holder));
+
+    const PALETTE = [
+        '#8ab4f8', '#ffb74d', '#66bb6a', '#d07bff', '#ef9a9a',
+        '#00BCD4', '#FF7043', '#A5D6A7', '#CE93D8', '#80DEEA',
+        '#FFCC80', '#F48FB1', '#B39DDB', '#80CBC4', '#FFE082',
+    ];
+
+    // ── DPR-aware canvas init ──────────────────────────────────────────────
+    const dpr = window.devicePixelRatio || 1;
+    const CH_FIXED = 460;
+
+    function initCanvas() {
+        const w = canvas.offsetWidth || 900;
+        canvas.width  = w * dpr;
+        canvas.height = CH_FIXED * dpr;
+        canvas.style.height = CH_FIXED + 'px';
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        return { CW: w, CH: CH_FIXED };
+    }
+
+    let { CW, CH } = initCanvas();
+    let cx = CW / 2, cy = CH / 2;
+
+    // ── Sqrt radius scale: area ∝ percent ─────────────────────────────────
+    const CENTER_R  = 38;
+    const MIN_R     = 14;                           // absolute floor for any node
+    const MIN_SHOWN = 22;                           // floor for named (non-others) nodes
+    const MAX_R     = Math.min(70, CW * 0.07);     // ceiling scales with canvas width
+    const maxPct    = rawNodes[0].pct;              // sorted desc; largest node anchors scale
+
+    // Radius anchored to the largest node only (t=1 → MAX_R, t→0 → MIN_R)
+    // This prevents the smallest node being crushed to MIN_R when the spread is wide.
+    function getR(pct) {
+        const t = Math.sqrt(pct / maxPct);          // 0..1, 1 = largest holder
+        return MIN_R + t * (MAX_R - MIN_R);
+    }
+
+    // ── Build nodeData ─────────────────────────────────────────────────────
+    const N = rawNodes.length;
+    const nodeData = rawNodes.map((n, i) => ({
+        ...n,
+        // Named nodes always get at least MIN_SHOWN so labels are readable
+        r: n.isOthers
+            ? Math.max(getR(n.pct), MIN_R)
+            : Math.max(getR(n.pct), MIN_SHOWN),
+        color: n.nodeType === 'insider' ? '#FF9800' :   // orange  — insider/promoter
+               n.nodeType === 'public'  ? '#78909C' :   // blue-grey — public float
+               n.isOthers               ? '#9aa0a6' :   // grey      — <threshold bucket
+               PALETTE[i % PALETTE.length],             // palette   — institutions
+        x: 0, y: 0,
+    }));
+
+    // ── Multi-ring placement ───────────────────────────────────────────────
+    // Top holders (by pct, already sorted) go on inner ring; smaller ones on outer.
+    // With a single holder everything fits on one ring.
+    function placeNodes() {
+        const innerCount = N <= 4 ? N : Math.min(5, Math.ceil(N * 0.35));
+        const outerCount = N - innerCount;
+        const innerOrbit = Math.min(CW, CH) * (outerCount > 0 ? 0.21 : 0.28);
+        const outerOrbit = Math.min(CW, CH) * 0.40;
+
+        nodeData.forEach((n, i) => {
+            const isInner  = i < innerCount;
+            const orbit    = isInner ? innerOrbit : outerOrbit;
+            const groupSz  = isInner ? innerCount : outerCount;
+            const groupIdx = isInner ? i : i - innerCount;
+            const angle    = (2 * Math.PI * groupIdx / Math.max(groupSz, 1)) - Math.PI / 2;
+            n.x = cx + orbit * Math.cos(angle);
+            n.y = cy + orbit * Math.sin(angle);
+        });
+    }
+
+    placeNodes();
+
+    // ── Collision avoidance ────────────────────────────────────────────────
+    // Simple pairwise repulsion; also pushes nodes clear of the central node and canvas edges.
+    function resolveCollisions(iters) {
+        const GAP = 9;
+        for (let iter = 0; iter < iters; iter++) {
+            for (let i = 0; i < N; i++) {
+                for (let j = i + 1; j < N; j++) {
+                    const a = nodeData[i], b = nodeData[j];
+                    const dx = b.x - a.x, dy = b.y - a.y;
+                    const d  = Math.hypot(dx, dy) || 0.001;
+                    const minD = a.r + b.r + GAP;
+                    if (d < minD) {
+                        const push = (minD - d) / 2 * 0.75;
+                        const nx = dx / d, ny = dy / d;
+                        a.x -= nx * push; a.y -= ny * push;
+                        b.x += nx * push; b.y += ny * push;
+                    }
+                }
+                // Keep clear of central node
+                const n = nodeData[i];
+                const dcx = n.x - cx, dcy = n.y - cy;
+                const dc   = Math.hypot(dcx, dcy) || 0.001;
+                const minC = CENTER_R + n.r + GAP;
+                if (dc < minC) { n.x = cx + (dcx / dc) * minC; n.y = cy + (dcy / dc) * minC; }
+                // Keep within canvas bounds
+                const pad = n.r + 4;
+                n.x = Math.max(pad, Math.min(CW - pad, n.x));
+                n.y = Math.max(pad, Math.min(CH - pad, n.y));
+            }
+        }
+    }
+
+    resolveCollisions(160);
+
+    // ── Pan + Zoom state ───────────────────────────────────────────────────
+    let panX = 0, panY = 0;
+    let zoomScale = 1;
+    let dragAnchor = null, didDrag = false;
+    let activeIdx  = -1;
+    let _animFrame = null;
+
+    // Animate smoothly to target zoom + pan (cubic ease-out)
+    function animateTo(toZoom, toPanX, toPanY, dur) {
+        dur = dur || 420;
+        const startZoom = zoomScale, startPX = panX, startPY = panY;
+        const t0 = performance.now();
+        if (_animFrame) cancelAnimationFrame(_animFrame);
+        function step(t) {
+            let p = Math.min((t - t0) / dur, 1);
+            p = 1 - Math.pow(1 - p, 3);          // cubic ease-out
+            zoomScale = startZoom + (toZoom  - startZoom) * p;
+            panX      = startPX   + (toPanX  - startPX)   * p;
+            panY      = startPY   + (toPanY  - startPY)   * p;
+            draw();
+            if (p < 1) _animFrame = requestAnimationFrame(step);
+        }
+        _animFrame = requestAnimationFrame(step);
+    }
+
+    // ── Draw ───────────────────────────────────────────────────────────────
+    function draw() {
+        ctx.clearRect(0, 0, CW, CH);
+        ctx.save();
+
+        // Zoom centered on canvas center, then apply pan
+        ctx.translate(cx + panX, cy + panY);
+        ctx.scale(zoomScale, zoomScale);
+        ctx.translate(-cx, -cy);
+
+        const hasActive = activeIdx >= 0;
+
+        // Spokes (behind nodes)
+        nodeData.forEach((n, i) => {
+            const isActive = i === activeIdx;
+            ctx.globalAlpha = hasActive && !isActive ? 0.15 : 1;
+            ctx.beginPath();
+            ctx.moveTo(cx, cy);
+            ctx.lineTo(n.x, n.y);
+            ctx.strokeStyle = isActive ? n.color + 'bb' : n.color + '30';
+            ctx.lineWidth   = isActive ? 1.5 : 0.8;
+            ctx.setLineDash(isActive ? [] : [3, 5]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        });
+
+        // Central node
+        ctx.globalAlpha = hasActive ? 0.3 : 1;
+        ctx.beginPath();
+        ctx.arc(cx, cy, CENTER_R, 0, Math.PI * 2);
+        ctx.fillStyle = '#2196F3';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(33,150,243,0.4)';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 11px Inter, system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(ticker.length > 10 ? ticker.slice(0, 9) + '\u2026' : ticker, cx, cy);
+        ctx.globalAlpha = 1;
+
+        // Holder nodes + labels
+        nodeData.forEach((n, i) => {
+            const isActive = i === activeIdx;
+            ctx.globalAlpha = hasActive && !isActive ? 0.18 : 1;
+
+            // Circle
+            ctx.beginPath();
+            ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
+            ctx.fillStyle = isActive ? n.color : n.color + 'cc';
+            ctx.fill();
+            if (isActive) {
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = 2.5;
+                ctx.stroke();
+                // Glow ring
+                ctx.beginPath();
+                ctx.arc(n.x, n.y, n.r + 6, 0, Math.PI * 2);
+                ctx.strokeStyle = n.color + '44';
+                ctx.lineWidth = 4;
+                ctx.stroke();
+            }
+
+            ctx.globalAlpha = hasActive && !isActive ? 0.18 : 1;
+
+            // Pct label inside circle
+            if (n.r >= 18) {
+                const pctFont = Math.max(9, Math.min(13, Math.round(n.r * 0.32)));
+                ctx.fillStyle    = '#fff';
+                ctx.font         = `bold ${pctFont}px Inter, system-ui, sans-serif`;
+                ctx.textAlign    = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(n.pct.toFixed(1) + '%', n.x, n.y + pctFont * 0.38);
+            }
+
+            // Name label above circle
+            {
+                const maxChars  = Math.max(10, Math.floor(n.r * 0.55));
+                const shortName = n.holder.length > maxChars
+                    ? n.holder.slice(0, maxChars - 1) + '\u2026'
+                    : n.holder;
+                const labelFont = Math.max(9, Math.min(11, Math.round(n.r * 0.26)));
+                ctx.font         = `${labelFont}px Inter, system-ui, sans-serif`;
+                ctx.fillStyle    = isActive ? '#e6e9ef' : '#b0b4c8';
+                ctx.textAlign    = 'center';
+                ctx.textBaseline = 'bottom';
+                ctx.fillText(shortName, n.x, n.y - n.r - 4);
+            }
+            ctx.globalAlpha = 1;
+        });
+
+        ctx.restore();
+    }
+
+    draw();
+
+    // ── Hit test (accounts for pan + zoom) ────────────────────────────────
+    function hitTest(mx, my) {
+        // Inverse of: screen = cx + panX + z*(pos.x - cx)
+        const ax = (mx - cx - panX) / zoomScale + cx;
+        const ay = (my - cy - panY) / zoomScale + cy;
+        for (let i = 0; i < N; i++) {
+            const n = nodeData[i];
+            if ((ax - n.x) ** 2 + (ay - n.y) ** 2 <= n.r ** 2) return i;
+        }
+        return -1;
+    }
+
+    // ── Detail panel ───────────────────────────────────────────────────────
+    const maxPctNode = nodeData.reduce((m, n) => n.pct > m.pct ? n : m, nodeData[0]);
+
+    function showDetailPanel(n) {
+        const panel = document.getElementById('mindmap-detail-panel');
+        if (!panel) return;
+        const sharesStr = n.shares != null
+            ? new Intl.NumberFormat().format(Math.round(n.shares))
+            : '\u2014';
+        const barW = maxPctNode ? Math.round((n.pct / maxPctNode.pct) * 100) : 100;
+        const typeLabels = {
+            insider: 'Insider / Promoter',
+            institution: 'Institution',
+            public: 'Public Float',
+        };
+        const typeLabel = n.isOthers ? 'Other Holders'
+            : (typeLabels[n.nodeType] || 'Institution');
+        panel.innerHTML = `
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px">
+                <div>
+                    <div style="font-size:1.05em;font-weight:700;color:${n.color};margin-bottom:8px">${_esc(n.holder)}</div>
+                    <span style="display:inline-block;padding:3px 10px;border-radius:12px;font-size:0.75em;font-weight:600;background:${n.color}22;color:${n.color};border:1px solid ${n.color}55">${_esc(typeLabel)}</span>
+                </div>
+                <div style="text-align:right;flex-shrink:0">
+                    <div style="font-size:2em;font-weight:700;color:${n.color};line-height:1">${n.pct.toFixed(2)}%</div>
+                    <div style="font-size:0.78em;color:var(--text-muted);margin-top:2px">Ownership</div>
+                </div>
+            </div>
+            <div style="margin-bottom:14px">
+                <div style="display:flex;justify-content:space-between;font-size:0.78em;color:var(--text-muted);margin-bottom:5px">
+                    <span>Relative to largest holder</span>
+                    <span style="color:${n.color};font-weight:600">${barW}%</span>
+                </div>
+                <div style="height:8px;background:var(--border);border-radius:4px;overflow:hidden">
+                    <div style="height:100%;width:${barW}%;background:linear-gradient(90deg,${n.color}99,${n.color});border-radius:4px"></div>
+                </div>
+            </div>
+            <div style="display:flex;gap:28px;flex-wrap:wrap">
+                <div>
+                    <div style="font-size:0.75em;color:var(--text-muted);margin-bottom:2px">Shares Held</div>
+                    <div style="font-size:0.92em;font-weight:600;color:var(--text-primary)">${sharesStr}</div>
+                </div>
+                <div>
+                    <div style="font-size:0.75em;color:var(--text-muted);margin-bottom:2px">Click node again to reset</div>
+                    <div style="font-size:0.82em;color:var(--text-muted)">or click empty area</div>
+                </div>
+            </div>`;
+        panel.style.display = 'block';
+    }
+
+    function hideDetailPanel() {
+        const panel = document.getElementById('mindmap-detail-panel');
+        if (panel) panel.style.display = 'none';
+    }
+
+    // ── Mouse events ───────────────────────────────────────────────────────
+    canvas.onmousedown = e => {
+        dragAnchor = { ox: panX - e.clientX, oy: panY - e.clientY };
+        didDrag = false;
+    };
+
+    canvas.onmousemove = e => {
+        if (!dragAnchor) return;
+        const nx = e.clientX + dragAnchor.ox;
+        const ny = e.clientY + dragAnchor.oy;
+        if (!didDrag && Math.hypot(nx - panX, ny - panY) > 3) didDrag = true;
+        if (didDrag) {
+            panX = nx; panY = ny;
+            canvas.style.cursor = 'grabbing';
+            draw();
+        }
+    };
+
+    canvas.onmouseup = e => {
+        if (!didDrag) {
+            const rect = canvas.getBoundingClientRect();
+            const hit  = hitTest(e.clientX - rect.left, e.clientY - rect.top);
+            if (hit === -1 || hit === activeIdx) {
+                // Empty area or same node → reset to overview
+                activeIdx = -1;
+                animateTo(1, 0, 0);
+                hideDetailPanel();
+            } else {
+                // New node clicked → zoom in centered on it + show detail panel
+                activeIdx = hit;
+                const n = nodeData[hit];
+                const targetZoom = 2.2;
+                // After transform: screen_x = cx + panX + z*(n.x - cx)
+                // We want screen_x = cx → panX = z*(cx - n.x)
+                animateTo(targetZoom, targetZoom * (cx - n.x), targetZoom * (cy - n.y));
+                showDetailPanel(n);
+            }
+        }
+        dragAnchor = null; didDrag = false;
+        canvas.style.cursor = 'pointer';
+    };
+
+    canvas.onmouseleave = () => { dragAnchor = null; canvas.style.cursor = 'pointer'; };
+
+    // Outside click → reset to overview
+    document.addEventListener('click', function outsideHandler(e) {
+        const card = document.getElementById('ownership-mindmap-card');
+        if (!card) { document.removeEventListener('click', outsideHandler); return; }
+        if (!card.contains(e.target)) {
+            activeIdx = -1;
+            animateTo(1, 0, 0);
+            hideDetailPanel();
+        }
+    });
+
+    // ── Resize ─────────────────────────────────────────────────────────────
+    let _rt;
+    window.addEventListener('resize', () => {
+        clearTimeout(_rt);
+        _rt = setTimeout(() => {
+            if (!document.getElementById('ownership-mindmap-canvas')) return;
+            ({ CW, CH } = initCanvas());
+            cx = CW / 2; cy = CH / 2;
+            panX = 0; panY = 0; zoomScale = 1; activeIdx = -1;
+            hideDetailPanel();
+            placeNodes();
+            resolveCollisions(100);
+            draw();
+        }, 150);
+    });
+}

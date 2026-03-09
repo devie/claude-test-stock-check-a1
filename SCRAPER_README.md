@@ -71,23 +71,23 @@ export KSEI_PASSWORD="your_password"
 
 ```bash
 # Basic — IDX public scrape, ISAT, CSV
-python ksei_isat_scraper.py --ticker ISAT
+python ksei_scraper.py --ticker ISAT
 
 # TLKM as Parquet, show browser window
-python ksei_isat_scraper.py --ticker TLKM --format parquet --headful
+python ksei_scraper.py --ticker TLKM --format parquet --headful
 
 # BBCA with KSEI login
 KSEI_USERNAME=xx KSEI_PASSWORD=yy \
-  python ksei_isat_scraper.py --ticker BBCA --issuer "PT Bank Central Asia Tbk"
+  python ksei_scraper.py --ticker BBCA --issuer "PT Bank Central Asia Tbk"
 
 # Dry-run — verify selectors without saving
-python ksei_isat_scraper.py --ticker ISAT --dry-run
+python ksei_scraper.py --ticker ISAT --dry-run
 
 # Lower threshold — all holders ≥0.5%
-python ksei_isat_scraper.py --ticker ISAT --threshold 0.5
+python ksei_scraper.py --ticker ISAT --threshold 0.5
 
 # Run via uv
-uv run python ksei_isat_scraper.py --ticker ISAT
+uv run python ksei_scraper.py --ticker ISAT
 ```
 
 ---

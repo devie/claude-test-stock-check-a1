@@ -1,8 +1,8 @@
 """Flask web application for stock checker."""
 
+import logging
 import math
 import json
-import traceback
 from pathlib import Path
 import numpy as np
 from flask import Flask, render_template, request, jsonify
@@ -28,10 +28,20 @@ app = Flask(
     template_folder=str(Path(__file__).parent / "templates"),
 )
 app.secret_key = os.getenv("SECRET_KEY", secrets.token_hex(32))
+app.config["MAX_CONTENT_LENGTH"] = 1 * 1024 * 1024  # 1 MB request limit
 
 # Simple API key for state-mutating endpoints
 APP_API_KEY = os.getenv("APP_API_KEY", "")
 app.config["APP_API_KEY"] = APP_API_KEY
+
+
+@app.after_request
+def _add_security_headers(response):
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["X-XSS-Protection"] = "0"  # disable legacy XSS auditor; rely on CSP
+    return response
 
 
 def require_api_key():
@@ -274,9 +284,9 @@ def analyze():
             "technicals": technicals,
             "chart": chart,
         })
-    except Exception as e:
-        traceback.print_exc()
-        return jsonify({"error": f"Analysis failed: {e}"}), 500
+    except Exception:
+        logging.exception("Analysis failed for ticker %s", ticker)
+        return jsonify({"error": "Analysis failed. Please try again."}), 500
 
 
 def run():

@@ -789,7 +789,10 @@ const App = {
             .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
             .replace(/\*(.+?)\*/g, '<em>$1</em>')
             .replace(/`(.+?)`/g, '<code style="background:rgba(255,255,255,0.1);padding:1px 5px;border-radius:3px;font-family:monospace;font-size:0.9em">$1</code>')
-            .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" target="_blank" rel="noopener" style="color:var(--accent)">$1</a>');
+            .replace(/\[(.+?)\]\((.+?)\)/g, (_, text, url) => {
+                const safe = /^https?:\/\//i.test(url.trim()) ? esc(url) : '#';
+                return `<a href="${safe}" target="_blank" rel="noopener noreferrer" style="color:var(--accent)">${text}</a>`;
+            });
         const lines = raw.split('\n');
         const parts = [];
         let inUl = false, inOl = false;
@@ -1274,7 +1277,8 @@ const App = {
                 setTimeout(() => renderOwnershipMindMap(ticker, ownershipGroups), 50);
             }
         } catch (e) {
-            el.innerHTML = `<div class="card"><p style="color:var(--text-muted)">Failed to load company information: ${e.message}</p></div>`;
+            const _escMsg = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+            el.innerHTML = `<div class="card"><p style="color:var(--text-muted)">Failed to load company information: ${_escMsg(e.message)}</p></div>`;
         }
     },
 

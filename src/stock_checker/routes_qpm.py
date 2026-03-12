@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import csv
 import io
-import traceback
+import logging
+import re
 from pathlib import Path
 
 import numpy as np
@@ -18,6 +19,7 @@ bp = Blueprint(
 )
 
 _DEFAULT_RF = 0.065  # 6.5% BI Rate
+_TICKER_RE = re.compile(r'^[A-Z0-9]{1,10}(\.[A-Z]{1,4})?$')
 
 
 def _get_rf() -> float:
@@ -53,7 +55,8 @@ def optimize():
     Returns optimization results: weights, metrics, factor exposures, efficient frontier.
     """
     body = request.get_json(force=True, silent=True) or {}
-    tickers: list[str] = [str(t).strip() for t in body.get("tickers", []) if str(t).strip()]
+    raw_tickers = [str(t).strip().upper() for t in body.get("tickers", []) if str(t).strip()]
+    tickers: list[str] = [t for t in raw_tickers if _TICKER_RE.match(t)]
     period: str = body.get("period", "3y")
     method: str = body.get("method", "max_sharpe")
     rf: float = float(body.get("risk_free_rate", _get_rf()))
@@ -168,9 +171,9 @@ def optimize():
 
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 422
-    except Exception as exc:
-        traceback.print_exc()
-        return jsonify({"error": f"Optimization failed: {exc}"}), 500
+    except Exception:
+        logging.exception("Optimization failed (tickers=%s method=%s)", tickers, method)
+        return jsonify({"error": "Optimization failed. Please try again."}), 500
 
 
 @bp.route("/backtest/<method>", methods=["GET"])
@@ -182,7 +185,7 @@ def backtest(method: str):
     tickers_raw = request.args.get("tickers", "")
     period = request.args.get("period", "5y")
     rf = float(request.args.get("rf", _get_rf()))
-    tickers = [t.strip() for t in tickers_raw.split(",") if t.strip()]
+    tickers = [t.strip().upper() for t in tickers_raw.split(",") if t.strip() and _TICKER_RE.match(t.strip().upper())]
 
     if len(tickers) < 3:
         return jsonify({"error": "Minimum 3 tickers required"}), 400
@@ -200,9 +203,9 @@ def backtest(method: str):
         return jsonify(result)
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 422
-    except Exception as exc:
-        traceback.print_exc()
-        return jsonify({"error": f"Backtest failed: {exc}"}), 500
+    except Exception:
+        logging.exception("Backtest failed (tickers=%s method=%s)", tickers, method)
+        return jsonify({"error": "Backtest failed. Please try again."}), 500
 
 
 @bp.route("/export", methods=["POST"])
